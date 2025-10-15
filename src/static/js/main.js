@@ -19,6 +19,7 @@ const elements = {
     projectSelect: document.getElementById('project-select'),
     branchSelect: document.getElementById('branch-select'),
     btnNewProject: document.getElementById('btn-new-project'),
+    btnDeleteProject: document.getElementById('btn-delete-project'),
     btnRefreshBranches: document.getElementById('btn-refresh-branches'),
     projectInfo: document.getElementById('project-info'),
 
@@ -114,14 +115,26 @@ async function loadProjectDetails(projectId) {
         elements.projectInfo.classList.remove('hidden');
         document.getElementById('info-path').textContent = project.path;
         document.getElementById('info-branch').textContent = project.current_branch || '未知';
-        document.getElementById('info-commit').textContent = project.latest_commit?.short_sha || '未知';
+
+        // 显示完整的commit信息
+        if (project.latest_commit) {
+            document.getElementById('info-commit').textContent = project.latest_commit.short_sha;
+            document.getElementById('info-commit-msg').textContent = project.latest_commit.message || '无';
+            document.getElementById('info-commit-author').textContent = project.latest_commit.author || '未知';
+        } else {
+            document.getElementById('info-commit').textContent = '未知';
+            document.getElementById('info-commit-msg').textContent = '无';
+            document.getElementById('info-commit-author').textContent = '未知';
+        }
+
         document.getElementById('info-status').textContent = project.is_dirty ? '有未提交更改' : '干净';
 
-        // 启用分支选择
+        // 启用删除按钮和分支选择
+        elements.btnDeleteProject.disabled = false;
         elements.branchSelect.disabled = false;
         elements.btnRefreshBranches.disabled = false;
 
-        // 加载分支列表（这里需要后端API支持）
+        // 加载分支列表
         await loadBranches(projectId);
 
     } catch (error) {
@@ -175,6 +188,11 @@ async function loadBranches(projectId) {
         state.currentBranch = data.current_branch;
         console.log(`加载了 ${branches.length} 个分支，当前分支: ${data.current_branch}`);
 
+        // 加载当前分支的资源包ID
+        if (data.current_branch && state.currentProject) {
+            await loadResourcePackages(state.currentProject.id, data.current_branch);
+        }
+
     } catch (error) {
         console.error('加载分支失败:', error);
         elements.branchSelect.innerHTML = '<option value="">-- 加载失败 --</option>';
@@ -220,6 +238,81 @@ async function createProject(formData) {
     } catch (error) {
         console.error('创建项目失败:', error);
         showToast(error.message, 'error');
+    }
+}
+
+/**
+ * 删除项目
+ */
+async function deleteProject(projectId) {
+    if (!confirm('确定要删除该项目吗？此操作不可恢复！')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/api/projects/${projectId}`, {
+            method: 'DELETE'
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || '删除项目失败');
+        }
+
+        showToast('项目删除成功！', 'success');
+
+        // 清空当前状态
+        state.currentProject = null;
+        state.currentBranch = null;
+        elements.projectInfo.classList.add('hidden');
+        elements.branchSelect.disabled = true;
+        elements.btnRefreshBranches.disabled = true;
+        elements.btnDeleteProject.disabled = true;
+
+        // 刷新项目列表
+        await loadProjects();
+
+    } catch (error) {
+        console.error('删除项目失败:', error);
+        showToast(error.message, 'error');
+    }
+}
+
+/**
+ * 加载资源包ID列表
+ */
+async function loadResourcePackages(projectId, branch) {
+    const resourcePackagesList = document.getElementById('resource-packages-list');
+
+    try {
+        resourcePackagesList.innerHTML = '<span class="text-xs text-gray-500">加载中...</span>';
+
+        const response = await fetch(`${API_BASE}/api/projects/${projectId}/resource-packages?branch=${encodeURIComponent(branch)}`);
+
+        if (!response.ok) {
+            throw new Error('加载资源包列表失败');
+        }
+
+        const data = await response.json();
+        const packages = data.resource_packages || [];
+
+        if (packages.length === 0) {
+            resourcePackagesList.innerHTML = '<span class="text-xs text-gray-500">该分支下无资源包</span>';
+        } else {
+            resourcePackagesList.innerHTML = '';
+            packages.forEach(pkg => {
+                const badge = document.createElement('span');
+                badge.className = 'px-3 py-1 bg-blue-100 text-blue-800 text-xs rounded-full';
+                badge.textContent = pkg;
+                resourcePackagesList.appendChild(badge);
+            });
+        }
+
+        console.log(`加载了 ${packages.length} 个资源包ID`);
+
+    } catch (error) {
+        console.error('加载资源包失败:', error);
+        resourcePackagesList.innerHTML = '<span class="text-xs text-red-500">加载失败</span>';
     }
 }
 
@@ -356,6 +449,24 @@ function initEventListeners() {
             elements.projectInfo.classList.add('hidden');
             elements.branchSelect.disabled = true;
             elements.btnRefreshBranches.disabled = true;
+            elements.btnDeleteProject.disabled = true;
+        }
+    });
+
+    // 删除项目按钮
+    elements.btnDeleteProject.addEventListener('click', () => {
+        if (state.currentProject) {
+            deleteProject(state.currentProject.id);
+        }
+    });
+
+    // 分支切换
+    elements.branchSelect.addEventListener('change', (e) => {
+        const selectedBranch = e.target.value;
+        if (selectedBranch && state.currentProject) {
+            state.currentBranch = selectedBranch;
+            // 加载新分支的资源包ID
+            loadResourcePackages(state.currentProject.id, selectedBranch);
         }
     });
 

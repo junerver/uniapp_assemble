@@ -492,3 +492,67 @@ async def get_project_branches(
     except Exception as e:
         logger.error(f"获取项目分支失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取项目分支失败: {str(e)}")
+
+
+@router.get("/{project_id}/resource-packages")
+async def get_resource_packages(
+    project_id: str,
+    branch: str = Query(..., description="分支名称"),
+    service: AndroidProjectService = Depends(get_project_service)
+) -> Dict[str, Any]:
+    """
+    获取项目指定分支的资源包ID列表(通过Git查询,不切换分支)。
+
+    Args:
+        project_id: 项目ID
+        branch: 分支名称
+        service: Android项目服务
+
+    Returns:
+        资源包信息,包括资源包ID列表
+
+    Raises:
+        HTTPException: 项目不存在或不是Git仓库
+    """
+    try:
+        # 获取项目信息
+        project = await service.get_project(project_id)
+
+        # 导入Git工具
+        from ..utils.git_utils import GitUtils, BranchNotFoundError
+
+        # 检查是否为Git仓库
+        if not GitUtils.is_git_repository(project.path):
+            raise HTTPException(
+                status_code=400,
+                detail=f"项目路径不是有效的Git仓库: {project.path}"
+            )
+
+        # 获取资源包目录列表(app/src/main/assets/apps)
+        try:
+            resource_packages = GitUtils.list_directories_in_branch(
+                path=project.path,
+                branch_name=branch,
+                directory_path="app/src/main/assets/apps"
+            )
+
+            logger.info(f"获取资源包列表: {project.name} (ID: {project.id}), 分支: {branch}, {len(resource_packages)} 个资源包")
+
+            return {
+                "project_id": project_id,
+                "branch": branch,
+                "resource_packages": resource_packages,
+                "total_count": len(resource_packages),
+                "directory_path": "app/src/main/assets/apps"
+            }
+
+        except BranchNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+
+    except ProjectNotFoundError as e:
+        raise create_not_found_exception("Project", project_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取资源包列表失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取资源包列表失败: {str(e)}")
