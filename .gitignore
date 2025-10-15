@@ -1,10 +1,136 @@
 # Python-generated files
 __pycache__/
-*.py[oc]
+*.py[cod]
+*$py.class
+*.so
+.Python
 build/
+develop-eggs/
 dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
 wheels/
-*.egg-info
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
 # Virtual environments
+.env
 .venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+android_builder.db
+
+# Uploads and temp files
+uploads/
+temp/
+tmp/
+
+# Build artifacts
+app/build/
+app/build/outputs/
+*.apk
+*.aab
+
+# Gradle
+.gradle/
+gradle/
+gradlew
+gradlew.bat
+gradle-wrapper.jar
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# ruff
+.ruff_cache/
+
+# Claude
+.claude/
+
+# Node.js (if using for frontend tools)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# UV package manager
+.uv/
+.uv-cache/
+uv.lock
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Test scripts and examples
+*_test.py
+test_*.py
+*_demo.py
+demo_*.py
+*_example.py
+example_*.py
+*_analyzer.py
+analyzer_*.py
+*_monitor.py
+monitor_*.py
+*_utils.py
+utils_*.py
+*_handler.py
+handler_*.py
+*_concepts.py
+concepts_*.py

@@ -1,0 +1,363 @@
+openapi: 3.0.0
+info:
+  title: UV包管理工具配置合约
+  description: UV包管理工具迁移的配置文件和脚本标准
+  version: 1.0.0
+  contact:
+    name: GovCar项目团队
+    email: dev@govcar.com
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8000
+    description: 开发环境服务器
+
+paths:
+  /api/config/uv:
+    get:
+      summary: 获取UV配置信息
+      tags:
+        - Configuration
+      responses:
+        "200":
+          description: 成功获取UV配置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UVConfiguration"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/config/migration:
+    post:
+      summary: 执行UV迁移
+      tags:
+        - Migration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MigrationRequest"
+      responses:
+        "200":
+          description: 迁移执行成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MigrationResponse"
+        "400":
+          description: 迁移请求错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/config/validation:
+    post:
+      summary: 验证配置文件
+      tags:
+        - Validation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValidationRequest"
+      responses:
+        "200":
+          description: 配置验证结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationResponse"
+
+  /api/config/performance:
+    get:
+      summary: 获取性能指标
+      tags:
+        - Performance
+      responses:
+        "200":
+          description: 性能指标数据
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PerformanceMetrics"
+
+components:
+  schemas:
+    UVConfiguration:
+      type: object
+      properties:
+        version:
+          type: string
+          description: UV版本
+        cache_dir:
+          type: string
+          description: 缓存目录路径
+        max_cache_size:
+          type: string
+          description: 最大缓存大小
+        python_version:
+          type: string
+          description: Python版本
+        venv_auto_create:
+          type: boolean
+          description: 是否自动创建虚拟环境
+        index_url:
+          type: string
+          description: 包索引URL
+        extra_index_urls:
+          type: array
+          items:
+            type: string
+          description: 额外包索引URL列表
+      required:
+        - version
+        - python_version
+
+    MigrationRequest:
+      type: object
+      properties:
+        source_format:
+          type: string
+          enum: ["requirements.txt", "pipenv", "poetry"]
+          description: 源依赖格式
+        target_format:
+          type: string
+          enum: ["pyproject.toml"]
+          description: 目标格式
+        include_dev_dependencies:
+          type: boolean
+          default: true
+          description: 是否包含开发依赖
+        backup_original:
+          type: boolean
+          default: true
+          description: 是否备份原始文件
+        dry_run:
+          type: boolean
+          default: false
+          description: 是否为试运行
+      required:
+        - source_format
+        - target_format
+
+    MigrationResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: 迁移是否成功
+        migration_id:
+          type: string
+          description: 迁移任务ID
+        created_files:
+          type: array
+          items:
+            type: string
+          description: 创建的文件列表
+        backed_up_files:
+          type: array
+          items:
+            type: string
+          description: 备份的文件列表
+        warnings:
+          type: array
+          items:
+            type: string
+          description: 警告信息列表
+        errors:
+          type: array
+          items:
+            type: string
+          description: 错误信息列表
+        execution_time:
+          type: number
+          description: 执行时间（秒）
+      required:
+        - success
+        - migration_id
+
+    ValidationRequest:
+      type: object
+      properties:
+        config_files:
+          type: array
+          items:
+            type: string
+          description: 要验证的配置文件列表
+        check_dependencies:
+          type: boolean
+          default: true
+          description: 是否检查依赖兼容性
+        check_security:
+          type: boolean
+          default: true
+          description: 是否进行安全检查
+        check_licenses:
+          type: boolean
+          default: false
+          description: 是否检查许可证兼容性
+      required:
+        - config_files
+
+    ValidationResponse:
+      type: object
+      properties:
+        valid:
+          type: boolean
+          description: 配置是否有效
+        validation_id:
+          type: string
+          description: 验证任务ID
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationResult"
+          description: 验证结果列表
+        summary:
+          type: object
+          properties:
+            total_checks:
+              type: integer
+              description: 总检查项数
+            passed_checks:
+              type: integer
+              description: 通过的检查项数
+            failed_checks:
+              type: integer
+              description: 失败的检查项数
+            warning_checks:
+              type: integer
+              description: 警告的检查项数
+      required:
+        - valid
+        - validation_id
+        - results
+        - summary
+
+    ValidationResult:
+      type: object
+      properties:
+        file_path:
+          type: string
+          description: 验证的文件路径
+        check_type:
+          type: string
+          enum: ["syntax", "dependencies", "security", "licenses"]
+          description: 检查类型
+        status:
+          type: string
+          enum: ["passed", "failed", "warning"]
+          description: 检查状态
+        message:
+          type: string
+          description: 检查结果消息
+        details:
+          type: object
+          description: 详细信息
+        recommendations:
+          type: array
+          items:
+            type: string
+          description: 修复建议
+      required:
+        - file_path
+        - check_type
+        - status
+        - message
+
+    PerformanceMetrics:
+      type: object
+      properties:
+        installation_time:
+          type: number
+          description: 依赖安装时间（秒）
+        cache_hit_rate:
+          type: number
+          description: 缓存命中率（百分比）
+        parallel_efficiency:
+          type: number
+          description: 并行安装效率（百分比）
+        memory_usage:
+          type: number
+          description: 内存使用量（MB）
+        disk_usage:
+          type: number
+          description: 磁盘使用量（MB）
+        network_usage:
+          type: number
+          description: 网络使用量（MB）
+        timestamp:
+          type: string
+          format: date-time
+          description: 指标收集时间
+      required:
+        - installation_time
+        - timestamp
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: boolean
+          default: true
+        message:
+          type: string
+          description: 错误消息
+        error_code:
+          type: string
+          description: 错误代码
+        details:
+          type: object
+          description: 错误详情
+        timestamp:
+          type: string
+          format: date-time
+          description: 错误发生时间
+      required:
+        - error
+        - message
+        - error_code
+
+  parameters:
+    ConfigFile:
+      name: config_file
+      in: query
+      description: 配置文件路径
+      required: true
+      schema:
+        type: string
+        format: path
+
+    MigrationId:
+      name: migration_id
+      in: path
+      description: 迁移任务ID
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+tags:
+  - name: Configuration
+    description: UV配置管理相关接口
+  - name: Migration
+    description: 迁移执行相关接口
+  - name: Validation
+    description: 配置验证相关接口
+  - name: Performance
+    description: 性能监控相关接口

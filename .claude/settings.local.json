@@ -3,7 +3,20 @@
     "allow": [
       "Bash(powershell -ExecutionPolicy Bypass -File:*)",
       "Bash(python:*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(ls:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(tree:*)",
+      "Bash(curl:*)",
+      "Bash(sh:*)",
+      "Bash(where:*)",
+      "Bash(\"C:\\Users\\Administrator\\AppData\\Local\\Programs\\Python\\Python313\\python.exe\" -m pip install uv)",
+      "Bash(uv:*)",
+      "Bash(cat:*)",
+      "Bash(time uv sync:*)",
+      "Bash(chmod:*)",
+      "Bash(make help:*)",
+      "Bash(./scripts/verify-migration.sh:*)"
     ],
     "deny": [],
     "ask": []

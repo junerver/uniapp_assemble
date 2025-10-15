@@ -26,11 +26,11 @@ description: "Task list for Android项目资源包替换构建工具 implementat
 
 **Purpose**: Project initialization and basic structure
 
-- [ ] T001 Create project structure per implementation plan in `src/` directory
-- [ ] T002 Initialize Python 3.13+ project with FastAPI dependencies in `pyproject.toml`
-- [ ] T003 [P] Configure code quality tools (ruff, black, mypy) in project configuration
-- [ ] T004 [P] Create development environment configuration files (`.env.example`, `README.md`)
-- [ ] T005 [P] Setup basic directory structure: `src/models/`, `src/services/`, `src/api/`, `src/utils/`, `src/config/`, `src/templates/`, `src/static/`
+- [x] T001 Create project structure per implementation plan in `src/` directory
+- [x] T002 Initialize Python 3.13+ project with FastAPI dependencies in `pyproject.toml`
+- [x] T003 [P] Configure code quality tools (ruff, black, mypy) in project configuration
+- [x] T004 [P] Create development environment configuration files (`.env.example`, `README.md`)
+- [x] T005 [P] Setup basic directory structure: `src/models/`, `src/services/`, `src/api/`, `src/utils/`, `src/config/`, `src/templates/`, `src/static/`
 
 ---
 
@@ -40,13 +40,13 @@ description: "Task list for Android项目资源包替换构建工具 implementat
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T006 Setup SQLite database with SQLAlchemy 2.0 async in `src/config/database.py`
-- [ ] T007 [P] Implement base async repository pattern in `src/database/repositories.py`
-- [ ] T008 [P] Setup FastAPI application structure and middleware in `src/main.py`
-- [ ] T009 [P] Configure error handling and logging infrastructure in `src/utils/exceptions.py`
-- [ ] T010 [P] Create base Pydantic models in `src/models/base.py`
-- [ ] T011 Setup environment configuration management in `src/config/settings.py`
-- [ ] T012 Create database initialization and migration system in `src/database/init_db.py`
+- [x] T006 Setup SQLite database with SQLAlchemy 2.0 async in `src/config/database.py`
+- [x] T007 [P] Implement base async repository pattern in `src/database/repositories.py`
+- [x] T008 [P] Setup FastAPI application structure and middleware in `src/main.py`
+- [x] T009 [P] Configure error handling and logging infrastructure in `src/utils/exceptions.py`
+- [x] T010 [P] Create base Pydantic models in `src/models/base.py`
+- [x] T011 Setup environment configuration management in `src/config/settings.py`
+- [x] T012 Create database initialization and migration system in `src/database/init_db.py`
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 

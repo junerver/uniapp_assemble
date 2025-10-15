@@ -1,0 +1,34 @@
+# UV Configuration File for Android Builder Project
+
+[python]
+# Python版本要求
+prefer-uv-python = true
+
+[cache]
+# 缓存目录配置
+dir = ".uv-cache"
+# 最大缓存大小 (2GB)
+max-size = "2GB"
+
+[pip]
+# Python包索引
+index-url = "https://pypi.org/simple"
+# 额外索引（如果需要）
+# extra-index-url = []
+
+# 信任的主机
+# trusted-host = []
+
+[venv]
+# 自动创建虚拟环境
+auto-create = true
+# 虚拟环境目录
+# 可以设置默认的虚拟环境名称
+# name = "android-builder"
+
+[dev]
+# 自动安装开发依赖
+auto-install-dev = true
+
+# 安装策略
+# prerelease = "allow"  # 允许预发布版本
