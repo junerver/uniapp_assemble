@@ -1,7 +1,19 @@
 [project]
 name = "govcar-upgrade-uniapp-assemble"
 version = "0.1.0"
-description = "Add your description here"
+description = "基于 Python 的工具，用于拖拽压缩包处理以快速构建 Android 项目"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "GitPython>=3.1.40",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"

@@ -1,0 +1,1864 @@
+openapi: 3.0.0
+info:
+  title: GovCar Android构建工具 API
+  description: Android项目资源包替换构建工具的RESTful API接口
+  version: 1.0.0
+  contact:
+    name: GovCar Android构建工具团队
+    email: support@govcar.com
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8000
+    description: 开发环境服务器
+  - url: http://127.0.0.1:8000
+    description: 本地开发服务器
+
+paths:
+  /api/projects:
+    get:
+      summary: 获取所有Android项目
+      tags:
+        - Projects
+      responses:
+        "200":
+          description: 成功获取项目列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AndroidProject"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    post:
+      summary: 创建新的Android项目
+      tags:
+        - Projects
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectRequest"
+      responses:
+        "201":
+          description: 项目创建成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AndroidProject"
+        "400":
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/projects/{project_id}:
+    get:
+      summary: 获取指定项目详情
+      tags:
+        - Projects
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 成功获取项目详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AndroidProject"
+        "404":
+          description: 项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    put:
+      summary: 更新项目信息
+      tags:
+        - Projects
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProjectRequest"
+      responses:
+        "200":
+          description: 项目更新成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AndroidProject"
+        "400":
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: 项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      summary: 删除项目
+      tags:
+        - Projects
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: 项目删除成功
+        "404":
+          description: 项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/projects/{project_id}/branches:
+    get:
+      summary: 获取项目的Git分支列表
+      tags:
+        - Git Operations
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 成功获取分支列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  branches:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        description: 分支名称
+                      current:
+                        type: boolean
+                        description: 是否为当前分支
+                      ahead:
+                        type: integer
+                        description: 领先提交数
+                      behind:
+                        type: integer
+                        description: 落后提交数
+        "404":
+          description: 项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/projects/{project_id}/upload:
+    post:
+      summary: 上传资源包文件
+      tags:
+        - File Operations
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+          schema:
+            type: object
+            properties:
+              file:
+                type: string
+                format: binary
+                description: 资源包文件（支持zip、rar、7z格式）
+      responses:
+        "200":
+          description: 文件上传成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResponse"
+        "400":
+          description: 文件格式或大小错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: 文件过大（超过500MB限制）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/projects/{project_id}/build:
+    post:
+      summary: 开始构建任务
+      tags:
+        - Build Operations
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+              $ref: "#/components/schemas/BuildRequest"
+      responses:
+        "201":
+          description: 构建任务创建成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuildTask"
+        "400":
+          description: 构建参数错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: 项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/projects/{project_id}/build/{task_id}:
+    get:
+      summary: 获取构建任务状态
+      tags:
+        - Build Operations
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 成功获取任务状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuildTask"
+        "404":
+          description: 任务或项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      summary: 取消构建任务
+      tags:
+        - Build Operations
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: 任务取消成功
+        "404":
+          description: 任务或项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/projects/{project_id}/build/{task_id}/logs:
+    get:
+      summary: 获取构建日志
+      tags:
+        - Build Operations
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: level
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [info, warning, error, debug]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+      responses:
+        "200":
+          description: 成功获取构建日志
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logs:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/BuildLog"
+                  total:
+                    type: integer
+                  has_more:
+                    type: boolean
+        "404":
+          description: 任务或项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/projects/{project_id}/build/{task_id}/results:
+    get:
+      summary: 获取构建结果
+      tags:
+        - Build Operations
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 成功获取构建结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/BuildResult"
+                  apk_files:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/APKFile"
+        "404":
+          description: 任务或项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/projects/{project_id}/build/{task_id}/apk/{apk_id}/download:
+    get:
+      summary: 下载APK文件
+      tags:
+        - Build Operations
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: apk_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 成功下载APK文件
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+              headers:
+                  Content-Disposition:
+                    description: attachment; filename="app.apk"
+        "404":
+          description: 文件不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/projects/{project_id}/git/commit:
+    post:
+      summary: 提交Git更改
+      tags:
+        - Git Operations
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+              $ref: "#/components/schemas/GitCommitRequest"
+      responses:
+        "200":
+          description: Git提交成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitOperation"
+        "400":
+          description: 提交参数错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Git操作冲突
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/projects/{project_id}/git/rollback:
+    post:
+      summary: 回滚Git更改
+      tags:
+        - Git Operations
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+              $ref: "#/components/schemas/GitRollbackRequest"
+      responses:
+        "200":
+          description: Git回滚成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitOperation"
+        "400":
+          description: 回滚参数错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Git操作冲突
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/projects/{project_id}/git/operations:
+    get:
+      summary: 获取Git操作历史
+      tags:
+        - Git Operations
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: operation_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [commit, rollback, branch_switch, backup]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: 成功获取Git操作历史
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  operations:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/GitOperation"
+                  total:
+                    type: integer
+                  has_more:
+                    type: boolean
+        "404":
+          description: 项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/health:
+    get:
+      summary: 健康检查
+      tags:
+        - System
+      responses:
+        "200":
+          description: 系统健康状态
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                  type: string
+                  enum: [healthy, unhealthy]
+                  timestamp:
+                    type: string
+                    format: date-time
+                  version:
+                    type: string
+                  database:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        enum: [connected, disconnected]
+                      size:
+                        type: integer
+                  git:
+                    type: object
+                    properties:
+                      available:
+                        type: boolean
+                      version:
+                        type: string
+                  memory:
+                    type: object
+                    properties:
+                      used_mb:
+                        type: number
+                      available_mb:
+                        type: number
+                      usage_percent:
+                        type: number
+        "500":
+          description: 健康检查失败
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    AndroidProject:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 项目唯一标识符
+        name:
+          type: string
+          description: 项目名称
+        alias:
+          type: string
+          description: 项目别名
+        path:
+          type: string
+          description: 项目绝对路径
+        description:
+          type: string
+          description: 项目描述
+        is_active:
+          type: boolean
+          description: 是否激活
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新时间
+      required:
+        - id
+        - name
+        - path
+        - created_at
+
+    CreateProjectRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: 项目名称
+        alias:
+          type: string
+          description: 项目别名
+        path:
+          type: string
+          description: 项目绝对路径
+        description:
+          type: string
+          description: 项目描述
+      required:
+        - name
+        - path
+
+    UpdateProjectRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: 项目名称
+        alias:
+          type: string
+          description: 项目别名
+        description:
+          type: string
+          description: 项目描述
+        is_active:
+          type: boolean
+          description: 是否激活
+
+    UploadResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: 上传是否成功
+        filename:
+          type: string
+          description: 文件名
+        size:
+          type: integer
+          description: 文件大小（字节）
+        file_id:
+          type: string
+          format: uuid
+          description: 文件唯一标识符
+        upload_id:
+          type: string
+          format: uuid
+          description: 上传任务ID
+        message:
+          type: string
+          description: 状态消息
+        validation:
+          type: object
+          properties:
+            is_valid:
+              type: boolean
+              description: 验证是否通过
+            file_type:
+              type: string
+              description: 检测到的文件类型
+            mime_type:
+              type: string
+              description: MIME类型
+            safe_filename:
+              type: string
+              description: 安全文件名
+
+    BuildRequest:
+      type: object
+      properties:
+        resource_package_path:
+          type: string
+          description: 资源包文件路径
+        git_branch:
+          type: string
+          description: 目标Git分支
+        commit_message:
+          type: string
+          description: 提交信息（可选）
+        skip_git_check:
+          type: boolean
+          description: 跳过Git安全检查
+          default: false
+      required:
+        - resource_package_path
+        - git_branch
+
+    BuildTask:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 任务唯一标识符
+        project_id:
+          type: string
+          format: uuid
+          description: 项目ID
+        task_type:
+          type: string
+          enum: [resource_replace, build, extract_apk]
+          description: 任务类型
+        status:
+          type: string
+          enum: [pending, running, completed, failed, cancelled]
+          description: 任务状态
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: 进度百分比
+        started_at:
+          type: string
+          format: date-time
+          description: 开始时间
+        completed_at:
+          type: string
+          format: date-time
+          description: 完成时间
+        error_message:
+          type: string
+          description: 错误信息
+        result_data:
+          type: object
+          description: 结果数据
+        resource_package_path:
+          type: string
+          description: 资源包路径
+        git_branch:
+          type: string
+          description: Git分支名称
+        commit_hash:
+          type: string
+          description: 提交哈希
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新时间
+        current_step:
+          type: string
+          description: 当前执行步骤
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              step:
+                type: string
+                description: 步骤名称
+              status:
+                type: string
+                enum: [pending, in_progress, completed, failed]
+                description: 步骤状态
+              message:
+                type: string
+                description: 步骤消息
+              timestamp:
+                type: string
+                format: date-time
+                description: 步骤时间戳
+          description: 执行步骤详情
+
+    BuildLog:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 日志ID
+        build_task_id:
+          type: string
+          format: uuid
+          description: 构建任务ID
+        log_level:
+          type: string
+          enum: [info, warning, error, debug]
+          description: 日志级别
+        timestamp:
+          type: string
+          format: date-time
+          description: 时间戳
+        message:
+          type: string
+          description: 日志消息
+        source:
+          type: string
+          description: 日志来源
+        line_number:
+          type: integer
+          description: 行号
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+
+    BuildResult:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 结果ID
+        build_task_id:
+          type: string
+          format: uuid
+          description: 构建任务ID
+        file_type:
+          type: string
+          enum: [apk, log, metadata]
+          description: 文件类型
+        file_path:
+          type: string
+          description: 文件路径
+        file_size:
+          type: integer
+          description: 文件大小（字节）
+        file_hash:
+          type: string
+          description: 文件哈希值
+        metadata:
+          type: object
+          description: 文件元数据
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+
+    APKFile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: APK文件ID
+        filename:
+          type: string
+          description: 文件名
+        size:
+          type: integer
+          description: 文件大小
+        path:
+          type: string
+          description: 文件路径
+        hash:
+          type: string
+          description: 文件哈希值
+        metadata:
+          type: object
+          description: APK元数据
+        download_url:
+          type: string
+          format: uri
+          description: 下载链接
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+
+    GitOperation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 操作ID
+        project_id:
+          type: string
+          format: uuid
+          description: 项目ID
+        operation_type:
+          type: string
+          enum: [commit, rollback, branch_switch, backup]
+          description: 操作类型
+        status:
+          type: string
+          enum: [pending, in_progress, completed, failed]
+          description: 操作状态
+        commit_hash:
+          type: string
+          description: 提交哈希
+        commit_message:
+          type: string
+          description: 提交信息
+        branch_name:
+          type: string
+          description: 分支名称
+        backup_path:
+          type: string
+          description: 备份路径
+        error_message:
+          type: string
+          description: 错误信息
+        operation_data:
+          type: object
+          description: 操作数据
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+        completed_at:
+          type: string
+          format: date-time
+          description: 完成时间
+
+    GitCommitRequest:
+      type: object
+      properties:
+        commit_message:
+          type: string
+          description: 提交信息
+        include_files:
+          type: array
+          items:
+            type: string
+          description: 要包含的文件路径列表
+        exclude_files:
+          type: array
+          items:
+            type: string
+          description: 要排除的文件路径列表
+        skip_validation:
+          type: boolean
+          description: 跳过验证检查
+
+    GitRollbackRequest:
+      type: object
+      properties:
+        commit_hash:
+          type: string
+          description: 要回滚到的提交哈希
+        reason:
+          type: string
+          description: 回滚原因
+        backup_path:
+          type: string
+          description: 备份路径（可选）
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: 错误类型
+        message:
+          type: string
+          description: 错误详情
+        details:
+          type: object
+          description: 错误详细信息
+        timestamp:
+          type: string
+          format: date-time
+          description: 错误发生时间
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+        timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+        database:
+          type: object
+          properties:
+            status:
+              type: string
+              enum: [connected, disconnected]
+            size:
+              type: integer
+        git:
+          type: object
+          properties:
+            available:
+              type: boolean
+            version:
+              type: string
+        memory:
+          type: object
+          properties:
+            used_mb:
+              type: number
+            available_mb:
+              type: number
+            usage_percent:
+              type: number
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT认证
+
+tags:
+  - name: Projects
+    description: Android项目管理
+  - name: Git Operations
+    description: Git操作管理
+  - Build Operations
+    description: 构建任务管理
+  - File Operations
+    description: 文件上传处理
+  - System
+    description: 系统管理
+
+# License: MIT
+```description: 下载APK文件
+            format: binary
+              headers:
+                  Content-Disposition:
+                    description: attachment; filename="app.apk"
+```
+    description: 下载APK文件
+        "404":
+          description: 文件不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/projects/{project_id}/git/commit:
+    post:
+      summary: 提交Git更改
+      tags:
+        - Git Operations
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+              $ref: "#/components/schemas/GitCommitRequest"
+      responses:
+        "200":
+          description: Git提交成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitOperation"
+        "400":
+          description: 提交参数错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Git操作冲突
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/projects/{project_id}/git/rollback:
+    post:
+      summary: 回滚Git更改
+      tags:
+        - Git Operations
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+              $ref: "#/components/schemas/GitRollbackRequest"
+      responses:
+        "200":
+          description: Git回滚成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitOperation"
+        "400":
+          description: 回滚参数错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Git操作冲突
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/projects/{project_id}/git/operations:
+    get:
+      summary: 获取Git操作历史
+      tags:
+        - Git Operations
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: operation_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [commit, rollback, branch_switch, backup]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: 成功获取Git操作历史
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  operations:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/GitOperation"
+                  total:
+                    type: integer
+                  has_more:
+                    type: boolean
+        "404":
+          description: 项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/health:
+    get:
+      summary: 健康检查
+      tags:
+        - System
+      responses:
+        "200":
+          description: 系统健康状态
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                  type: string
+                  enum: [healthy, unhealthy]
+                  timestamp:
+                    type: string
+                    format: date-time
+                  version:
+                    type: string
+                  database:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        enum: [connected, disconnected]
+                      size:
+                        type: integer
+                  git:
+                    type: object
+                    properties:
+                      available:
+                        type: boolean
+                      version:
+                        type: string
+                  memory:
+                    type: object
+                    properties:
+                      used_mb:
+                        type: number
+                      available_mb:
+                        type: number
+                      usage_percent:
+                        type: number
+        "500":
+          description: 健康检查失败
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    AndroidProject:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 项目唯一标识符
+        name:
+          type: string
+          description: 项目名称
+        alias:
+          type: string
+          description: 项目别名
+        path:
+          type: string
+          description: 项目绝对路径
+        description:
+          type: string
+          description: 项目描述
+        is_active:
+          type: boolean
+          description: 是否激活
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新时间
+      required:
+        - id
+        - name
+        - path
+        - created_at
+
+    CreateProjectRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: 项目名称
+        alias:
+          type: string
+          description: 项目别名
+        path:
+          type: string
+          description: 项目绝对路径
+        description:
+          type: string
+          description: 项目描述
+      required:
+        - name
+        - path
+
+    UpdateProjectRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: 项目名称
+        alias:
+          type: string
+          description: 项目别名
+        description:
+          type: string
+          description: 项目描述
+        is_active:
+          type: boolean
+          description: 是否激活
+
+    UploadResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: 上传是否成功
+        filename:
+          type: string
+          description: 文件名
+        size:
+          type: integer
+          description: 文件大小（字节）
+        file_id:
+          type: string
+          format: uuid
+          description: 文件唯一标识符
+        upload_id:
+          type: string
+          format: uuid
+          description: 上传任务ID
+        message:
+          type: string
+          description: 状态消息
+        validation:
+          type: object
+          properties:
+            is_valid:
+              type: boolean
+              description: 验证是否通过
+            file_type:
+              type: string
+              description: 检测到的文件类型
+            mime_type:
+              type: string
+              description: MIME类型
+            safe_filename:
+              type: string
+              description: 安全文件名
+
+    BuildRequest:
+      type: object
+      properties:
+        resource_package_path:
+          type: string
+          description: 资源包文件路径
+        git_branch:
+          type: string
+          description: 目标Git分支
+        commit_message:
+          type: string
+          description: 提交信息（可选）
+        skip_git_check:
+          type: boolean
+          description: 跳过Git安全检查
+          default: false
+      required:
+        - resource_package_path
+        - git_branch
+
+    BuildTask:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 任务唯一标识符
+        project_id:
+          type: string
+          format: uuid
+          description: 项目ID
+        task_type:
+          type: string
+          enum: [resource_replace, build, extract_apk]
+          description: 任务类型
+        status:
+          type: string
+          enum: [pending, running, completed, failed, cancelled]
+          description: 任务状态
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: 进度百分比
+        started_at:
+          type: string
+          format: date-time
+          description: 开始时间
+        completed_at:
+          type: string
+          format: date-time
+          description: 完成时间
+        error_message:
+          type: string
+          description: 错误信息
+        result_data:
+          type: object
+          description: 结果数据
+        resource_package_path:
+          type: string
+          description: 资源包路径
+        git_branch:
+          type: string
+          description: Git分支名称
+        commit_hash:
+          type: string
+          description: 提交哈希
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新时间
+        current_step:
+          type: string
+          description: 当前执行步骤
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              step:
+                type: string
+                description: 步骤名称
+              status:
+                type: string
+                enum: [pending, in_progress, completed, failed]
+                description: 步骤状态
+              message:
+                type: string
+                description: 步骤消息
+              timestamp:
+                type: string
+                format: date-time
+                description: 步骤时间戳
+          description: 执行步骤详情
+
+    BuildLog:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 日志ID
+        build_task_id:
+          type: string
+          format: uuid
+          description: 构建任务ID
+        log_level:
+          type: string
+          enum: [info, warning, error, debug]
+          description: 日志级别
+        timestamp:
+          type: string
+          format: date-time
+          description: 时间戳
+        message:
+          type: string
+          description: 日志消息
+        source:
+          type: string
+          description: 日志来源
+        line_number:
+          type: integer
+          description: 行号
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+
+    BuildResult:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 结果ID
+        build_task_id:
+          type: string
+          format: uuid
+          description: 构建任务ID
+        file_type:
+          type: string
+          enum: [apk, log, metadata]
+          description: 文件类型
+        file_path:
+          type: string
+          description: 文件路径
+        file_size:
+          type: integer
+          description: 文件大小（字节）
+        file_hash:
+          type: string
+          description: 文件哈希值
+        metadata:
+          type: object
+          description: 文件元数据
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+
+    APKFile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: APK文件ID
+        filename:
+          type: string
+          description: 文件名
+        size:
+          type: integer
+          description: 文件大小
+        path:
+          type: string
+          description: 文件路径
+        hash:
+          type: string
+          description: 文件哈希
+        metadata:
+          type: object
+          description: APK元数据
+        download_url:
+          type: string
+          format: uri
+          description: 下载链接
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+
+    GitOperation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 操作ID
+        project_id:
+          type: string
+          format: uuid
+          description: 项目ID
+        operation_type:
+          type: string
+          enum: [commit, rollback, branch_switch, backup]
+          description: 操作类型
+        status:
+          type: string
+          enum: [pending, in_progress, completed, failed]
+          description: 操作状态
+        commit_hash:
+          type: string
+          description: 提交哈希
+        commit_message:
+          type: string
+          description: 提交信息
+        branch_name:
+          type: string
+          description: 分支名称
+        backup_path:
+          type: string
+          description: 备份路径
+        error_message:
+          type: string
+          description: 错误信息
+        operation_data:
+          type: object
+          description: 操作数据
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+        completed_at:
+          type: string
+          format: date-time
+          description: 完成时间
+
+    GitCommitRequest:
+      type: object
+      properties:
+        commit_message:
+          type: string
+          description: 提交信息
+        include_files:
+          type: array
+          items:
+            type: string
+          description: 要包含的文件路径列表
+        exclude_files:
+          type: array
+          items:
+            type: string
+          description: 要排除的文件路径列表
+        skip_validation:
+          type: boolean
+          description: 跳过验证检查
+
+    GitRollbackRequest:
+      type: object
+      properties:
+        commit_hash:
+          type: string
+          description: 要回滚到的提交哈希
+        reason:
+          type: string
+          description: 回滚原因
+        backup_path:
+          type: string
+          description: 备份路径（可选）
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: 错误类型
+        message:
+          type: string
+          description: 错误详情
+        details:
+          type: object
+          description: 错误详细信息
+        timestamp:
+          type: string
+          format: date-time
+          description: 错误发生时间
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+        timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+        database:
+          type: object
+          properties:
+            status:
+              type: string
+              enum: [connected, disconnected]
+            size:
+              type: integer
+        git:
+          type: object
+          properties:
+            available:
+              type: boolean
+            version:
+              type: string
+        memory:
+          type: object
+          properties:
+            used_mb:
+              type: number
+            available_mb:
+              type: number
+            usage_percent:
+              type: number
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT认证
+
+tags:
+  - name: Projects
+    description: Android项目管理
+  - name: Git Operations
+    description: Git操作管理
+  - Build Operations
+    description: 构建任务管理
+  - File Operations
+    description: 文件上传处理
+  - System
+    description: 系统管理
+
+# License: MIT
