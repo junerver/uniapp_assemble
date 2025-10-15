@@ -321,6 +321,39 @@ async def general_exception_handler(request: Request, exc: Exception) -> JSONRes
     )
 
 
+class ProjectAlreadyExistsError(BaseCustomException):
+    """Exception raised when trying to create a project that already exists."""
+
+    def __init__(
+        self,
+        message: str = "Project already exists",
+        details: Optional[Dict[str, Any]] = None
+    ) -> None:
+        super().__init__(message, "PROJECT_ALREADY_EXISTS", details)
+
+
+class InvalidProjectPathError(BaseCustomException):
+    """Exception raised when project path is invalid."""
+
+    def __init__(
+        self,
+        message: str = "Invalid project path",
+        details: Optional[Dict[str, Any]] = None
+    ) -> None:
+        super().__init__(message, "INVALID_PROJECT_PATH", details)
+
+
+class ProjectNotFoundError(BaseCustomException):
+    """Exception raised when an Android project is not found."""
+
+    def __init__(
+        self,
+        message: str = "Android project not found",
+        details: Optional[Dict[str, Any]] = None
+    ) -> None:
+        super().__init__(message, "PROJECT_NOT_FOUND", details)
+
+
 def setup_exception_handlers(app) -> None:
     """
     Register exception handlers with FastAPI application.

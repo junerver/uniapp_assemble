@@ -9,8 +9,12 @@ from datetime import datetime
 from typing import Any, Dict, Generic, List, Optional, TypeVar
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.generics import GenericModel
+from sqlalchemy.ext.declarative import declarative_base
+
+# SQLAlchemy Base for ORM models
+BaseSQLModel = declarative_base()
 
 # Generic type for responses
 ResponseType = TypeVar("ResponseType")
@@ -48,10 +52,11 @@ class SoftDeleteSchema(TimestampedSchema):
     deleted_at: Optional[datetime] = Field(None, description="Deletion timestamp")
     is_deleted: bool = Field(False, description="Whether the record is deleted")
 
-    @validator("deleted_at", always=True)
-    def set_deleted_at(cls, v, values):
+    @field_validator("deleted_at", mode="before")
+    @classmethod
+    def set_deleted_at(cls, v, info):
         """Set deleted_at when is_deleted is True."""
-        if values.get("is_deleted") and v is None:
+        if info.data.get("is_deleted") and v is None:
             return datetime.utcnow()
         return v
 
@@ -202,9 +207,10 @@ class FilterParams(BaseModel):
 
     search: Optional[str] = Field(None, description="Search term")
     sort_by: Optional[str] = Field(None, description="Sort field")
-    sort_order: Optional[str] = Field("asc", regex="^(asc|desc)$", description="Sort order")
+    sort_order: Optional[str] = Field("asc", pattern="^(asc|desc)$", description="Sort order")
 
-    @validator("sort_order")
+    @field_validator("sort_order")
+    @classmethod
     def validate_sort_order(cls, v):
         """Validate sort order."""
         return v.lower()
@@ -218,11 +224,12 @@ class DateRangeFilter(BaseModel):
     start_date: Optional[datetime] = Field(None, description="Start date (inclusive)")
     end_date: Optional[datetime] = Field(None, description="End date (inclusive)")
 
-    @validator("end_date")
-    def validate_date_range(cls, v, values):
+    @field_validator("end_date")
+    @classmethod
+    def validate_date_range(cls, v, info):
         """Validate that end_date is after start_date."""
-        if v and "start_date" in values and values["start_date"]:
-            if v < values["start_date"]:
+        if v and "start_date" in info.data and info.data["start_date"]:
+            if v < info.data["start_date"]:
                 raise ValueError("end_date must be after start_date")
         return v
 

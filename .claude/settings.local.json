@@ -16,7 +16,8 @@
       "Bash(time uv sync:*)",
       "Bash(chmod:*)",
       "Bash(make help:*)",
-      "Bash(./scripts/verify-migration.sh:*)"
+      "Bash(./scripts/verify-migration.sh:*)",
+      "Bash(./.specify/scripts/powershell/check-prerequisites.ps1:*)"
     ],
     "deny": [],
     "ask": []
