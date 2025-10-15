@@ -101,12 +101,12 @@ async def add_security_headers(request: Request, call_next):
 
 
 # Include API routers
-from .api import projects
+from .api import projects, files
 app.include_router(projects.router)
+app.include_router(files.router)
 # TODO: Add other routers as they are implemented
 # app.include_router(builds.router, prefix="/api/builds", tags=["Builds"])
 # app.include_router(git.router, prefix="/api/git", tags=["Git"])
-# app.include_router(files.router, prefix="/api/files", tags=["Files"])
 # app.include_router(health.router, prefix="/api/health", tags=["Health"])
 
 # Mount static files

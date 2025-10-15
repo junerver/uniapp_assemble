@@ -1,0 +1,279 @@
+/**
+ * Android项目构建工具 - 自定义样式
+ *
+ * 基于Tailwind CSS CDN，这里添加额外的自定义样式
+ */
+
+/* ============================================
+   自定义动画
+   ============================================ */
+
+@keyframes pulse-subtle {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
+
+.animate-pulse-subtle {
+    animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes slide-in-right {
+    0% {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    100% {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.animate-slide-in-right {
+    animation: slide-in-right 0.3s ease-out;
+}
+
+/* ============================================
+   文件拖拽区域增强
+   ============================================ */
+
+#drop-zone {
+    transition: all 0.3s ease;
+}
+
+#drop-zone:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+#drop-zone.dragover {
+    border-color: #3b82f6 !important;
+    background-color: #eff6ff !important;
+    transform: scale(1.02);
+}
+
+/* ============================================
+   构建日志样式
+   ============================================ */
+
+#build-log::-webkit-scrollbar {
+    width: 8px;
+}
+
+#build-log::-webkit-scrollbar-track {
+    background: #1f2937;
+    border-radius: 4px;
+}
+
+#build-log::-webkit-scrollbar-thumb {
+    background: #4b5563;
+    border-radius: 4px;
+}
+
+#build-log::-webkit-scrollbar-thumb:hover {
+    background: #6b7280;
+}
+
+/* 日志行样式 */
+#build-log div {
+    padding: 2px 0;
+    line-height: 1.5;
+}
+
+/* ============================================
+   Toast通知动画
+   ============================================ */
+
+#toast-container > div {
+    animation: slide-in-right 0.3s ease-out;
+}
+
+/* ============================================
+   模态框背景模糊
+   ============================================ */
+
+#modal-new-project {
+    backdrop-filter: blur(4px);
+}
+
+/* ============================================
+   进度条动画
+   ============================================ */
+
+#upload-progress-bar {
+    transition: width 0.3s ease-out;
+}
+
+/* ============================================
+   按钮禁用状态
+   ============================================ */
+
+button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* ============================================
+   文件列表项悬停效果
+   ============================================ */
+
+#file-list > div {
+    transition: all 0.2s ease;
+}
+
+#file-list > div:hover {
+    background-color: #f3f4f6;
+    transform: translateX(4px);
+}
+
+/* ============================================
+   项目信息卡片
+   ============================================ */
+
+#project-info {
+    transition: all 0.3s ease;
+}
+
+#project-info.hidden {
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+}
+
+/* ============================================
+   步骤指示器
+   ============================================ */
+
+.step-active {
+    background-color: #3b82f6 !important;
+    color: white !important;
+}
+
+.step-complete {
+    background-color: #10b981 !important;
+    color: white !important;
+}
+
+/* ============================================
+   加载动画
+   ============================================ */
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.loading-spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: white;
+    animation: spin 0.8s linear infinite;
+}
+
+/* ============================================
+   状态指示灯
+   ============================================ */
+
+#status-indicator .bg-green-500 {
+    animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* ============================================
+   自定义滚动条（全局）
+   ============================================ */
+
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+/* ============================================
+   响应式调整
+   ============================================ */
+
+@media (max-width: 768px) {
+    /* 在小屏幕上隐藏某些元素 */
+    #status-indicator span:last-child {
+        display: none;
+    }
+
+    /* 调整步骤指示器 */
+    nav[aria-label="Progress"] ol li span {
+        font-size: 0.75rem;
+    }
+
+    /* 调整卡片间距 */
+    main > div {
+        margin-bottom: 1rem;
+    }
+}
+
+/* ============================================
+   打印样式
+   ============================================ */
+
+@media print {
+    header,
+    footer,
+    #btn-new-project,
+    #btn-refresh-branches,
+    .shadow-md,
+    .shadow-lg {
+        display: none;
+    }
+
+    body {
+        background: white;
+    }
+
+    .bg-white {
+        box-shadow: none;
+    }
+}
+
+/* ============================================
+   辅助功能增强
+   ============================================ */
+
+/* 提高焦点可见性 */
+*:focus {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+}
+
+/* 减少动画（尊重用户偏好） */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* ============================================
+   深色模式支持（预留）
+   ============================================ */
+
+@media (prefers-color-scheme: dark) {
+    /* 深色模式样式可以在这里添加 */
+}

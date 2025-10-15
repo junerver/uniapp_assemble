@@ -82,8 +82,21 @@ class ProjectResponse(BaseModel):
     created_at: Optional[str]
     updated_at: Optional[str]
 
-    class Config:
-        from_attributes = True
+    @classmethod
+    def from_android_project(cls, project: AndroidProject) -> "ProjectResponse":
+        """从AndroidProject模型创建响应对象。"""
+        from datetime import datetime
+        return cls(
+            id=project.id,
+            name=project.name,
+            alias=project.alias,
+            path=project.path,
+            description=project.description,
+            is_active=project.is_active,
+            display_name=project.alias if project.alias else project.name,
+            created_at=project.created_at.isoformat() if isinstance(project.created_at, datetime) else str(project.created_at) if project.created_at else None,
+            updated_at=project.updated_at.isoformat() if isinstance(project.updated_at, datetime) else str(project.updated_at) if project.updated_at else None
+        )
 
 
 class ProjectValidationResponse(BaseModel):
@@ -131,7 +144,7 @@ async def create_project(
             main_branch=request.main_branch
         )
         logger.info(f"项目创建成功: {project.name} (ID: {project.id})")
-        return project
+        return ProjectResponse.from_android_project(project)
 
     except ProjectAlreadyExistsError as e:
         raise create_conflict_exception(str(e))
@@ -160,7 +173,7 @@ async def list_projects(
     try:
         projects = await service.list_projects(active_only=active_only)
         logger.info(f"获取项目列表: {len(projects)} 个项目")
-        return projects
+        return [ProjectResponse.from_android_project(project) for project in projects]
 
     except Exception as e:
         logger.error(f"获取项目列表失败: {e}")
@@ -188,7 +201,7 @@ async def get_project(
     try:
         project = await service.get_project(project_id)
         logger.info(f"获取项目详情: {project.name} (ID: {project.id})")
-        return project
+        return ProjectResponse.from_android_project(project)
 
     except ProjectNotFoundError as e:
         raise create_not_found_exception("Project", project_id)
@@ -226,7 +239,7 @@ async def update_project(
             is_active=request.is_active
         )
         logger.info(f"项目更新成功: {project.name} (ID: {project.id})")
-        return project
+        return ProjectResponse.from_android_project(project)
 
     except ProjectNotFoundError as e:
         raise create_not_found_exception("Project", project_id)
@@ -419,3 +432,63 @@ async def deactivate_project(
     except Exception as e:
         logger.error(f"停用项目失败: {e}")
         raise HTTPException(status_code=500, detail=f"停用项目失败: {str(e)}")
+
+
+@router.get("/{project_id}/branches")
+async def get_project_branches(
+    project_id: str,
+    include_remote: bool = Query(True, description="是否包含远程分支"),
+    service: AndroidProjectService = Depends(get_project_service)
+) -> Dict[str, Any]:
+    """
+    获取项目的Git分支列表。
+
+    Args:
+        project_id: 项目ID
+        include_remote: 是否包含远程分支
+        service: Android项目服务
+
+    Returns:
+        分支信息，包括当前分支和分支列表
+
+    Raises:
+        HTTPException: 项目不存在或不是Git仓库
+    """
+    try:
+        # 获取项目信息
+        project = await service.get_project(project_id)
+
+        # 导入Git工具
+        from ..utils.git_utils import GitUtils
+
+        # 检查是否为Git仓库
+        if not GitUtils.is_git_repository(project.path):
+            raise HTTPException(
+                status_code=400,
+                detail=f"项目路径不是有效的Git仓库: {project.path}"
+            )
+
+        # 获取分支信息
+        branches = GitUtils.get_all_branches(project.path, include_remote=include_remote)
+        current_branch = GitUtils.get_current_branch(project.path)
+        repo_info = GitUtils.get_repository_info(project.path)
+
+        logger.info(f"获取项目分支: {project.name} (ID: {project.id}), {len(branches)} 个分支")
+
+        return {
+            "project_id": project_id,
+            "current_branch": current_branch,
+            "branches": branches,
+            "total_count": len(branches),
+            "is_dirty": repo_info.get("is_dirty", False),
+            "remote_url": repo_info.get("remote_url"),
+            "latest_commit": repo_info.get("latest_commit")
+        }
+
+    except ProjectNotFoundError as e:
+        raise create_not_found_exception("Project", project_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取项目分支失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取项目分支失败: {str(e)}")

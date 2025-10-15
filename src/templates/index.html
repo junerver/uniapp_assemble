@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Android项目资源包替换构建工具</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- 头部 -->
+    <header class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div class="flex items-center justify-between">
+                <h1 class="text-2xl font-bold text-gray-900">
+                    <span class="text-blue-600">🤖</span> Android项目构建工具
+                </h1>
+                <div class="flex items-center space-x-4">
+                    <span id="status-indicator" class="flex items-center text-sm">
+                        <span class="h-2 w-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
+                        <span class="text-gray-600">系统就绪</span>
+                    </span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主内容区域 -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- 步骤指示器 -->
+        <div class="mb-8">
+            <nav aria-label="Progress">
+                <ol class="flex items-center justify-between">
+                    <li class="flex items-center">
+                        <span class="flex items-center px-6 py-4 text-sm font-medium">
+                            <span class="flex-shrink-0 w-10 h-10 flex items-center justify-center bg-blue-600 rounded-full">
+                                <span class="text-white">1</span>
+                            </span>
+                            <span class="ml-4 text-sm font-medium text-gray-900">配置项目</span>
+                        </span>
+                    </li>
+                    <li class="flex items-center">
+                        <div class="flex-1 border-t-2 border-gray-300 mx-4"></div>
+                        <span class="flex items-center px-6 py-4 text-sm font-medium">
+                            <span class="flex-shrink-0 w-10 h-10 flex items-center justify-center border-2 border-gray-300 rounded-full">
+                                <span class="text-gray-500">2</span>
+                            </span>
+                            <span class="ml-4 text-sm font-medium text-gray-500">上传资源</span>
+                        </span>
+                    </li>
+                    <li class="flex items-center">
+                        <div class="flex-1 border-t-2 border-gray-300 mx-4"></div>
+                        <span class="flex items-center px-6 py-4 text-sm font-medium">
+                            <span class="flex-shrink-0 w-10 h-10 flex items-center justify-center border-2 border-gray-300 rounded-full">
+                                <span class="text-gray-500">3</span>
+                            </span>
+                            <span class="ml-4 text-sm font-medium text-gray-500">构建执行</span>
+                        </span>
+                    </li>
+                </ol>
+            </nav>
+        </div>
+
+        <!-- 项目选择卡片 -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-semibold text-gray-900">
+                    <span class="text-blue-500">📁</span> 项目配置
+                </h2>
+                <button id="btn-new-project" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    + 新建项目
+                </button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- 项目选择 -->
+                <div>
+                    <label for="project-select" class="block text-sm font-medium text-gray-700 mb-2">
+                        选择项目
+                    </label>
+                    <select id="project-select" class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        <option value="">-- 请选择项目 --</option>
+                    </select>
+                </div>
+
+                <!-- Git分支选择 -->
+                <div>
+                    <label for="branch-select" class="block text-sm font-medium text-gray-700 mb-2">
+                        Git分支
+                    </label>
+                    <div class="flex space-x-2">
+                        <select id="branch-select" class="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" disabled>
+                            <option value="">-- 请先选择项目 --</option>
+                        </select>
+                        <button id="btn-refresh-branches" class="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors" disabled>
+                            🔄
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 项目信息显示 -->
+            <div id="project-info" class="mt-4 p-4 bg-gray-50 rounded-md hidden">
+                <h3 class="text-sm font-medium text-gray-700 mb-2">项目信息</h3>
+                <div class="grid grid-cols-2 gap-2 text-sm">
+                    <div><span class="text-gray-600">项目路径：</span><span id="info-path" class="text-gray-900"></span></div>
+                    <div><span class="text-gray-600">当前分支：</span><span id="info-branch" class="text-gray-900"></span></div>
+                    <div><span class="text-gray-600">最新提交：</span><span id="info-commit" class="text-gray-900"></span></div>
+                    <div><span class="text-gray-600">工作区状态：</span><span id="info-status" class="text-gray-900"></span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 文件上传卡片 -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">
+                <span class="text-green-500">📦</span> 资源包上传
+            </h2>
+
+            <!-- 拖拽上传区域 -->
+            <div id="drop-zone" class="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center transition-colors hover:border-blue-500 hover:bg-blue-50 cursor-pointer">
+                <div class="flex flex-col items-center">
+                    <svg class="w-16 h-16 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    <p class="text-lg font-medium text-gray-700 mb-2">
+                        拖拽资源包到此处上传
+                    </p>
+                    <p class="text-sm text-gray-500 mb-4">
+                        或点击选择文件
+                    </p>
+                    <p class="text-xs text-gray-400">
+                        支持格式：ZIP, RAR, 7Z (最大 500MB)
+                    </p>
+                </div>
+                <input type="file" id="file-input" class="hidden" accept=".zip,.rar,.7z">
+            </div>
+
+            <!-- 上传进度 -->
+            <div id="upload-progress" class="mt-4 hidden">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-medium text-gray-700">上传进度</span>
+                    <span id="upload-percent" class="text-sm font-medium text-gray-900">0%</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2">
+                    <div id="upload-progress-bar" class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- 已上传文件列表 -->
+            <div id="uploaded-files" class="mt-4 hidden">
+                <h3 class="text-sm font-medium text-gray-700 mb-2">已上传文件</h3>
+                <div id="file-list" class="space-y-2">
+                    <!-- 文件项将动态插入这里 -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 构建控制卡片 -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">
+                <span class="text-purple-500">⚙️</span> 构建控制
+            </h2>
+
+            <div class="flex items-center space-x-4 mb-4">
+                <button id="btn-start-build" class="px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors font-medium disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>
+                    ▶️ 开始构建
+                </button>
+                <button id="btn-stop-build" class="px-6 py-3 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors font-medium hidden">
+                    ⏹️ 停止构建
+                </button>
+            </div>
+
+            <!-- 构建日志 -->
+            <div id="build-log-container" class="hidden">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-medium text-gray-700">构建日志</h3>
+                    <button id="btn-clear-log" class="text-sm text-gray-500 hover:text-gray-700">清空日志</button>
+                </div>
+                <div id="build-log" class="bg-gray-900 text-green-400 p-4 rounded-md font-mono text-sm h-64 overflow-y-auto">
+                    <div class="text-gray-500">等待构建开始...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 构建结果卡片 -->
+        <div id="build-result-container" class="bg-white rounded-lg shadow-md p-6 hidden">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">
+                <span class="text-yellow-500">📱</span> 构建结果
+            </h2>
+
+            <div id="build-result" class="space-y-4">
+                <!-- 构建结果将动态插入这里 -->
+            </div>
+        </div>
+    </main>
+
+    <!-- 新建项目模态框 -->
+    <div id="modal-new-project" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-gray-900">新建项目</h3>
+                <button id="btn-close-modal" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+
+            <form id="form-new-project" class="space-y-4">
+                <div>
+                    <label for="input-project-name" class="block text-sm font-medium text-gray-700 mb-1">
+                        项目名称 *
+                    </label>
+                    <input type="text" id="input-project-name" required class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="例如：my-android-app">
+                </div>
+
+                <div>
+                    <label for="input-project-alias" class="block text-sm font-medium text-gray-700 mb-1">
+                        项目别名（可选）
+                    </label>
+                    <input type="text" id="input-project-alias" class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="例如：我的应用">
+                </div>
+
+                <div>
+                    <label for="input-project-path" class="block text-sm font-medium text-gray-700 mb-1">
+                        项目路径 *
+                    </label>
+                    <input type="text" id="input-project-path" required class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="例如：E:\projects\my-app">
+                </div>
+
+                <div>
+                    <label for="input-project-description" class="block text-sm font-medium text-gray-700 mb-1">
+                        项目描述（可选）
+                    </label>
+                    <textarea id="input-project-description" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="项目简介..."></textarea>
+                </div>
+
+                <div class="flex justify-end space-x-3 pt-4">
+                    <button type="button" id="btn-cancel-modal" class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition-colors">
+                        取消
+                    </button>
+                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                        创建项目
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast 通知 -->
+    <div id="toast-container" class="fixed bottom-4 right-4 space-y-2 z-50">
+        <!-- Toast消息将动态插入这里 -->
+    </div>
+
+    <!-- 页脚 -->
+    <footer class="bg-white border-t border-gray-200 mt-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <p class="text-center text-sm text-gray-500">
+                © 2025 Android项目构建工具 v1.0.0
+            </p>
+        </div>
+    </footer>
+
+    <script src="/static/js/main.js"></script>
+</body>
+</html>

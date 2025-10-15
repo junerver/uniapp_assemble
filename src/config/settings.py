@@ -178,6 +178,11 @@ class Settings(BaseSettings):
         """Get uploads directory path."""
         return Path(self.upload_dir)
 
+    @property
+    def upload_directory(self) -> str:
+        """Get upload directory path as string."""
+        return self.upload_dir
+
     def get_cors_origins(self) -> List[str]:
         """Get CORS origins for FastAPI middleware."""
         if self.debug and "*://localhost:*" not in self.cors_origins:

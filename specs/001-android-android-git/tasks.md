@@ -60,17 +60,17 @@ description: "Task list for Android项目资源包替换构建工具 implementat
 
 ### Implementation for User Story 1
 
-- [ ] T013 [P] [US1] Create AndroidProject model in `src/models/android_project.py`
-- [ ] T014 [P] [US1] Create ProjectConfig model in `src/models/project_config.py`
-- [ ] T015 [US1] Implement AndroidProjectService in `src/services/android_service.py` (depends on T013, T014)
-- [ ] T016 [US1] Implement FileService for upload handling in `src/services/file_service.py`
-- [ ] T017 [P] [US1] Create project management API endpoints in `src/api/projects.py`
-- [ ] T018 [US1] Implement file upload endpoint in `src/api/files.py`
-- [ ] T019 [US1] Create Git branch detection utility in `src/utils/git_utils.py`
-- [ ] T020 [US1] Add resource package validation in `src/utils/validators.py`
-- [ ] T021 [US1] Create basic HTML frontend with drag-drop interface in `src/templates/index.html`
-- [ ] T022 [US1] Add frontend JavaScript for file upload in `src/static/js/main.js`
-- [ ] T023 [US1] Add Tailwind CSS styling in `src/static/css/style.css`
+- [x] T013 [P] [US1] Create AndroidProject model in `src/models/android_project.py`
+- [x] T014 [P] [US1] Create ProjectConfig model in `src/models/project_config.py`
+- [x] T015 [US1] Implement AndroidProjectService in `src/services/android_service.py` (depends on T013, T014)
+- [x] T016 [US1] Implement FileService for upload handling in `src/services/file_service.py`
+- [x] T017 [P] [US1] Create project management API endpoints in `src/api/projects.py`
+- [x] T018 [US1] Implement file upload endpoint in `src/api/files.py`
+- [x] T019 [US1] Create Git branch detection utility in `src/utils/git_utils.py`
+- [x] T020 [US1] Add resource package validation in `src/utils/validators.py`
+- [x] T021 [US1] Create basic HTML frontend with drag-drop interface in `src/templates/index.html`
+- [x] T022 [US1] Add frontend JavaScript for file upload in `src/static/js/main.js`
+- [x] T023 [US1] Add Tailwind CSS styling in `src/static/css/style.css`
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 

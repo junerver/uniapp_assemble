@@ -17,7 +17,10 @@
       "Bash(chmod:*)",
       "Bash(make help:*)",
       "Bash(./scripts/verify-migration.sh:*)",
-      "Bash(./.specify/scripts/powershell/check-prerequisites.ps1:*)"
+      "Bash(./.specify/scripts/powershell/check-prerequisites.ps1:*)",
+      "Bash(powershell:*)",
+      "Bash(pkill:*)",
+      "Bash(timeout 5 bash -c 'while true; do curl -s http://127.0.0.1:8000/health > /dev/null && echo \"\"Server ready\"\" && break; sleep 0.5; done')"
     ],
     "deny": [],
     "ask": []
