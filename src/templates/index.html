@@ -113,7 +113,13 @@
                     <div class="flex"><span class="text-gray-600 w-24">最新提交:</span><span id="info-commit" class="text-gray-900 flex-1 font-mono text-xs"></span></div>
                     <div class="flex"><span class="text-gray-600 w-24">提交信息:</span><span id="info-commit-msg" class="text-gray-900 flex-1"></span></div>
                     <div class="flex"><span class="text-gray-600 w-24">提交作者:</span><span id="info-commit-author" class="text-gray-900 flex-1"></span></div>
-                    <div class="flex"><span class="text-gray-600 w-24">工作区状态:</span><span id="info-status" class="text-gray-900 flex-1"></span></div>
+                    <div class="flex items-center">
+                        <span class="text-gray-600 w-24">工作区状态:</span>
+                        <span id="info-status" class="text-gray-900 flex-1"></span>
+                        <button id="btn-reset-workspace" class="ml-2 px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors hidden" title="回滚到最新提交">
+                            🔄 回滚
+                        </button>
+                    </div>
                 </div>
 
                 <!-- 资源包ID列表 -->

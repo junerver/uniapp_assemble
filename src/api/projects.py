@@ -471,7 +471,6 @@ async def get_project_branches(
         # 获取分支信息
         branches = GitUtils.get_all_branches(project.path, include_remote=include_remote)
         current_branch = GitUtils.get_current_branch(project.path)
-        repo_info = GitUtils.get_repository_info(project.path)
 
         logger.info(f"获取项目分支: {project.name} (ID: {project.id}), {len(branches)} 个分支")
 
@@ -479,10 +478,7 @@ async def get_project_branches(
             "project_id": project_id,
             "current_branch": current_branch,
             "branches": branches,
-            "total_count": len(branches),
-            "is_dirty": repo_info.get("is_dirty", False),
-            "remote_url": repo_info.get("remote_url"),
-            "latest_commit": repo_info.get("latest_commit")
+            "total_count": len(branches)
         }
 
     except ProjectNotFoundError as e:
@@ -536,6 +532,9 @@ async def get_resource_packages(
                 directory_path="app/src/main/assets/apps"
             )
 
+            # 获取指定分支的commit信息
+            branch_info = GitUtils.get_branch_info(project.path, branch)
+
             logger.info(f"获取资源包列表: {project.name} (ID: {project.id}), 分支: {branch}, {len(resource_packages)} 个资源包")
 
             return {
@@ -543,7 +542,14 @@ async def get_resource_packages(
                 "branch": branch,
                 "resource_packages": resource_packages,
                 "total_count": len(resource_packages),
-                "directory_path": "app/src/main/assets/apps"
+                "directory_path": "app/src/main/assets/apps",
+                "latest_commit": {
+                    "sha": branch_info.get("commit_sha"),
+                    "short_sha": branch_info.get("short_sha"),
+                    "message": branch_info.get("commit_message"),
+                    "author": branch_info.get("author"),
+                    "committed_date": branch_info.get("committed_date")
+                }
             }
 
         except BranchNotFoundError as e:
@@ -556,3 +562,203 @@ async def get_resource_packages(
     except Exception as e:
         logger.error(f"获取资源包列表失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取资源包列表失败: {str(e)}")
+
+
+@router.get("/{project_id}/workspace-status")
+async def get_workspace_status(
+    project_id: str,
+    service: AndroidProjectService = Depends(get_project_service)
+) -> Dict[str, Any]:
+    """
+    获取项目工作区状态。
+
+    Args:
+        project_id: 项目ID
+        service: Android项目服务
+
+    Returns:
+        工作区状态信息，包括：
+        - is_clean: 工作区是否干净
+        - is_dirty: 是否有未提交的更改
+        - untracked_files: 未跟踪文件数量
+        - modified_files: 已修改文件数量
+        - staged_files: 暂存区文件数量
+        - can_clean_reset: 是否可以安全地回滚
+
+    Raises:
+        HTTPException: 项目不存在或不是Git仓库
+    """
+    try:
+        # 获取项目信息
+        project = await service.get_project(project_id)
+
+        # 导入Git工具
+        from ..utils.git_utils import GitUtils
+
+        # 检查是否为Git仓库
+        if not GitUtils.is_git_repository(project.path):
+            raise HTTPException(
+                status_code=400,
+                detail=f"项目路径不是有效的Git仓库: {project.path}"
+            )
+
+        # 获取仓库信息
+        repo_info = GitUtils.get_repository_info(project.path)
+
+        # 获取暂存区文件数量
+        staged_files = 0
+        try:
+            git_repo = GitUtils.get_repository(project.path)
+            staged_files = len([item.a_path for item in git_repo.index.diff("HEAD")])
+        except Exception as e:
+            logger.warning(f"获取暂存区文件数量失败: {e}")
+
+        # 判断是否可以安全地回滚
+        can_clean_reset = True
+        status_description = "工作区干净"
+        status_type = "clean"
+
+        if repo_info["is_dirty"]:
+            can_clean_reset = False
+            status_type = "dirty"
+            if repo_info["untracked_files"] > 0 and repo_info["modified_files"] > 0:
+                status_description = f"有未提交的更改 ({repo_info['untracked_files']} 个未跟踪文件, {repo_info['modified_files']} 个修改文件)"
+            elif repo_info["untracked_files"] > 0:
+                status_description = f"有未跟踪文件 ({repo_info['untracked_files']} 个)"
+            elif repo_info["modified_files"] > 0:
+                status_description = f"有修改的文件 ({repo_info['modified_files']} 个)"
+        elif staged_files > 0:
+            can_clean_reset = False
+            status_type = "staged"
+            status_description = f"暂存区有文件 ({staged_files} 个)"
+        else:
+            status_description = "工作区干净"
+
+        logger.info(f"获取工作区状态: {project.name} (ID: {project.id}), 状态: {status_type}")
+
+        return {
+            "project_id": project_id,
+            "is_clean": not repo_info["is_dirty"] and staged_files == 0,
+            "is_dirty": repo_info["is_dirty"],
+            "untracked_files": repo_info["untracked_files"],
+            "modified_files": repo_info["modified_files"],
+            "staged_files": staged_files,
+            "can_clean_reset": can_clean_reset,
+            "status_description": status_description,
+            "status_type": status_type
+        }
+
+    except ProjectNotFoundError as e:
+        raise create_not_found_exception("Project", project_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取工作区状态失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取工作区状态失败: {str(e)}")
+
+
+@router.post("/{project_id}/reset-workspace")
+async def reset_workspace(
+    project_id: str,
+    service: AndroidProjectService = Depends(get_project_service)
+) -> Dict[str, Any]:
+    """
+    回滚工作区到当前分支的最新提交。
+
+    此操作将：
+    - 丢弃所有未提交的更改
+    - 删除所有未跟踪的文件
+    - 清空暂存区
+
+    Args:
+        project_id: 项目ID
+        service: Android项目服务
+
+    Returns:
+        回滚结果
+
+    Raises:
+        HTTPException: 项目不存在或不是Git仓库
+    """
+    try:
+        # 获取项目信息
+        project = await service.get_project(project_id)
+
+        # 导入Git工具
+        from ..utils.git_utils import GitUtils
+
+        # 检查是否为Git仓库
+        if not GitUtils.is_git_repository(project.path):
+            raise HTTPException(
+                status_code=400,
+                detail=f"项目路径不是有效的Git仓库: {project.path}"
+            )
+
+        # 获取仓库对象
+        repo = GitUtils.get_repository(project.path)
+
+        # 记录回滚前的状态
+        status_before = GitUtils.get_repository_info(project.path)
+
+        # 执行重置操作
+        reset_results = {
+            "discarded_changes": 0,
+            "removed_untracked": 0,
+            "cleared_staged": 0,
+            "errors": []
+        }
+
+        try:
+            # 1. 清空暂存区
+            if len([item.a_path for item in repo.index.diff("HEAD")]) > 0:
+                repo.git.reset("--mixed", "HEAD")
+                reset_results["cleared_staged"] = len([item.a_path for item in repo.index.diff("HEAD")])
+                logger.info(f"清空暂存区: {reset_results['cleared_staged']} 个文件")
+
+            # 2. 丢弃工作区的更改
+            if status_before["modified_files"] > 0:
+                repo.git.checkout("--", ".")
+                reset_results["discarded_changes"] = status_before["modified_files"]
+                logger.info(f"丢弃更改: {reset_results['discarded_changes']} 个文件")
+
+            # 3. 删除未跟踪的文件
+            if status_before["untracked_files"] > 0:
+                repo.git.clean("-fd")
+                reset_results["removed_untracked"] = status_before["untracked_files"]
+                logger.info(f"删除未跟踪文件: {reset_results['removed_untracked']} 个文件")
+
+        except Exception as e:
+            error_msg = f"执行重置操作时出错: {str(e)}"
+            logger.error(error_msg)
+            reset_results["errors"].append(error_msg)
+            raise HTTPException(status_code=500, detail=error_msg)
+
+        # 获取回滚后的状态
+        status_after = GitUtils.get_repository_info(project.path)
+
+        logger.info(f"工作区回滚完成: {project.name} (ID: {project.id})")
+
+        return {
+            "project_id": project_id,
+            "success": len(reset_results["errors"]) == 0,
+            "message": "工作区已成功回滚到最新提交" if len(reset_results["errors"]) == 0 else "回滚过程中出现错误",
+            "reset_results": reset_results,
+            "status_before": {
+                "is_dirty": status_before["is_dirty"],
+                "untracked_files": status_before["untracked_files"],
+                "modified_files": status_before["modified_files"]
+            },
+            "status_after": {
+                "is_dirty": status_after["is_dirty"],
+                "untracked_files": status_after["untracked_files"],
+                "modified_files": status_after["modified_files"]
+            }
+        }
+
+    except ProjectNotFoundError as e:
+        raise create_not_found_exception("Project", project_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"重置工作区失败: {e}")
+        raise HTTPException(status_code=500, detail=f"重置工作区失败: {str(e)}")

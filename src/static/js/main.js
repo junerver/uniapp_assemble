@@ -21,6 +21,7 @@ const elements = {
     btnNewProject: document.getElementById('btn-new-project'),
     btnDeleteProject: document.getElementById('btn-delete-project'),
     btnRefreshBranches: document.getElementById('btn-refresh-branches'),
+    btnResetWorkspace: document.getElementById('btn-reset-workspace'),
     projectInfo: document.getElementById('project-info'),
 
     // 模态框
@@ -114,25 +115,21 @@ async function loadProjectDetails(projectId) {
         // 显示项目信息
         elements.projectInfo.classList.remove('hidden');
         document.getElementById('info-path').textContent = project.path;
-        document.getElementById('info-branch').textContent = project.current_branch || '未知';
+        document.getElementById('info-branch').textContent = '-- 加载中 --';
 
-        // 显示完整的commit信息
-        if (project.latest_commit) {
-            document.getElementById('info-commit').textContent = project.latest_commit.short_sha;
-            document.getElementById('info-commit-msg').textContent = project.latest_commit.message || '无';
-            document.getElementById('info-commit-author').textContent = project.latest_commit.author || '未知';
-        } else {
-            document.getElementById('info-commit').textContent = '未知';
-            document.getElementById('info-commit-msg').textContent = '无';
-            document.getElementById('info-commit-author').textContent = '未知';
-        }
-
-        document.getElementById('info-status').textContent = project.is_dirty ? '有未提交更改' : '干净';
+        // commit信息将在选择分支后由loadResourcePackages函数更新
+        document.getElementById('info-commit').textContent = '-- 加载中 --';
+        document.getElementById('info-commit-msg').textContent = '-- 加载中 --';
+        document.getElementById('info-commit-author').textContent = '-- 加载中 --';
+        document.getElementById('info-status').textContent = '-- 加载中 --';
 
         // 启用删除按钮和分支选择
         elements.btnDeleteProject.disabled = false;
         elements.branchSelect.disabled = false;
         elements.btnRefreshBranches.disabled = false;
+
+        // 加载工作区状态
+        await loadWorkspaceStatus(projectId);
 
         // 加载分支列表
         await loadBranches(projectId);
@@ -186,6 +183,7 @@ async function loadBranches(projectId) {
 
         // 更新当前分支显示
         state.currentBranch = data.current_branch;
+        document.getElementById('info-branch').textContent = data.current_branch || '未知';
         console.log(`加载了 ${branches.length} 个分支，当前分支: ${data.current_branch}`);
 
         // 加载当前分支的资源包ID
@@ -279,6 +277,102 @@ async function deleteProject(projectId) {
 }
 
 /**
+ * 加载工作区状态
+ */
+async function loadWorkspaceStatus(projectId) {
+    try {
+        const response = await fetch(`${API_BASE}/api/projects/${projectId}/workspace-status`);
+
+        if (!response.ok) {
+            if (response.status === 400) {
+                // 不是Git仓库
+                document.getElementById('info-status').textContent = '-- 不是Git仓库 --';
+                elements.btnResetWorkspace.classList.add('hidden');
+                return;
+            }
+            throw new Error('加载工作区状态失败');
+        }
+
+        const data = await response.json();
+
+        // 更新工作区状态显示
+        document.getElementById('info-status').textContent = data.status_description;
+
+        // 根据状态决定是否显示回滚按钮
+        if (data.can_clean_reset === false && data.is_dirty) {
+            elements.btnResetWorkspace.classList.remove('hidden');
+            elements.btnResetWorkspace.disabled = false;
+
+            // 根据状态类型设置按钮样式
+            elements.btnResetWorkspace.className = data.status_type === 'dirty'
+                ? 'ml-2 px-3 py-1 bg-orange-600 text-white text-xs rounded hover:bg-orange-700 transition-colors'
+                : 'ml-2 px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors';
+
+            // 设置按钮提示信息
+            elements.btnResetWorkspace.title = data.status_description;
+        } else {
+            elements.btnResetWorkspace.classList.add('hidden');
+            elements.btnResetWorkspace.disabled = true;
+        }
+
+        console.log(`工作区状态: ${data.status_description}`);
+
+    } catch (error) {
+        console.error('加载工作区状态失败:', error);
+        document.getElementById('info-status').textContent = '-- 加载失败 --';
+        elements.btnResetWorkspace.classList.add('hidden');
+    }
+}
+
+/**
+ * 重置工作区到最新提交
+ */
+async function resetWorkspace(projectId) {
+    if (!confirm('确定要回滚工作区吗？此操作将丢弃所有未提交的更改并删除未跟踪的文件，不可恢复！')) {
+        return;
+    }
+
+    try {
+        // 禁用回滚按钮，显示加载状态
+        elements.btnResetWorkspace.disabled = true;
+        elements.btnResetWorkspace.textContent = '🔄 回滚中...';
+
+        const response = await fetch(`${API_BASE}/api/projects/${projectId}/reset-workspace`, {
+            method: 'POST'
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || '回滚失败');
+        }
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast('工作区已成功回滚到最新提交', 'success');
+
+            // 重新加载工作区状态
+            await loadWorkspaceStatus(projectId);
+
+            // 重新加载当前分支的资源包（如果已选择分支）
+            if (state.currentBranch) {
+                await loadResourcePackages(projectId, state.currentBranch);
+            }
+        } else {
+            showToast('回滚过程中出现错误', 'error');
+        }
+
+    } catch (error) {
+        console.error('重置工作区失败:', error);
+        showToast(error.message || '重置工作区失败', 'error');
+    } finally {
+        // 恢复按钮状态
+        elements.btnResetWorkspace.disabled = false;
+        elements.btnResetWorkspace.textContent = '🔄 回滚';
+    }
+}
+
+/**
  * 加载资源包ID列表
  */
 async function loadResourcePackages(projectId, branch) {
@@ -296,6 +390,7 @@ async function loadResourcePackages(projectId, branch) {
         const data = await response.json();
         const packages = data.resource_packages || [];
 
+        // 更新资源包列表显示
         if (packages.length === 0) {
             resourcePackagesList.innerHTML = '<span class="text-xs text-gray-500">该分支下无资源包</span>';
         } else {
@@ -306,6 +401,13 @@ async function loadResourcePackages(projectId, branch) {
                 badge.textContent = pkg;
                 resourcePackagesList.appendChild(badge);
             });
+        }
+
+        // 更新分支的commit信息
+        if (data.latest_commit) {
+            document.getElementById('info-commit').textContent = data.latest_commit.short_sha || '未知';
+            document.getElementById('info-commit-msg').textContent = data.latest_commit.message || '无';
+            document.getElementById('info-commit-author').textContent = data.latest_commit.author || '未知';
         }
 
         console.log(`加载了 ${packages.length} 个资源包ID`);
@@ -460,11 +562,22 @@ function initEventListeners() {
         }
     });
 
+    // 回滚工作区按钮
+    elements.btnResetWorkspace.addEventListener('click', () => {
+        if (state.currentProject) {
+            resetWorkspace(state.currentProject.id);
+        }
+    });
+
     // 分支切换
     elements.branchSelect.addEventListener('change', (e) => {
         const selectedBranch = e.target.value;
         if (selectedBranch && state.currentProject) {
             state.currentBranch = selectedBranch;
+            // 更新当前分支显示
+            document.getElementById('info-branch').textContent = selectedBranch;
+            // 重新加载工作区状态
+            loadWorkspaceStatus(state.currentProject.id);
             // 加载新分支的资源包ID
             loadResourcePackages(state.currentProject.id, selectedBranch);
         }
