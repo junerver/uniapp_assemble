@@ -17,7 +17,6 @@ from src.models.base import BaseSQLModel
 from src.models.android_project import AndroidProject
 from src.models.project_config import ProjectConfig
 from src.models.build_task import BuildTask
-from src.models.build_log import BuildLog
 
 
 async def init_database():
