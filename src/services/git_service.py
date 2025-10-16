@@ -1025,6 +1025,17 @@ class GitService:
             # 获取当前状态
             status = await GitUtils.get_status(project_path)
 
+            # 获取暂存区文件列表
+            staged_files = []
+            try:
+                repo = GitUtils.get_repository(project_path)
+                staged_files = [item.a_path for item in repo.index.diff("HEAD")]
+            except Exception as e:
+                logger.warning(f"获取暂存区文件列表失败: {e}")
+
+            # 是否为干净工作区（无脏状态且无暂存文件）
+            is_clean = (not repo_info.get("is_dirty", False)) and len(staged_files) == 0
+
             # 获取当前分支
             current_branch = GitUtils.get_current_branch(project_path)
 
@@ -1041,14 +1052,16 @@ class GitService:
                 "current_commit": repo_info.get("latest_commit", {}),
                 "status": status,
                 "remote_url": remote_url,
-                "repository_info": repo_info
+                "repository_info": repo_info,
+                "is_clean": is_clean,
+                "staged_files": staged_files
             }
 
         except Exception as e:
             logger.error(f"获取仓库状态失败: {e}")
             raise BuildError(f"获取仓库状态失败: {str(e)}")
 
-    async def get_commit_history(self, project_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    async def get_commit_history(self, project_id: str, limit: int = 50, branch: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         获取Git提交历史。
 
@@ -1068,11 +1081,17 @@ class GitService:
             if not GitUtils.is_git_repository(project_path):
                 raise ValidationError(f"项目路径不是有效的Git仓库: {project_path}")
 
-            # 获取当前分支
-            current_branch = GitUtils.get_current_branch(project_path)
+            # 选择目标分支：优先使用传入分支且存在，否则使用当前分支
+            try:
+                if branch and GitUtils.branch_exists(project_path, branch):
+                    target_branch = branch
+                else:
+                    target_branch = GitUtils.get_current_branch(project_path)
+            except Exception:
+                target_branch = GitUtils.get_current_branch(project_path)
 
             # 获取提交历史
-            commits = await GitUtils.get_recent_commits(project_path, current_branch, limit)
+            commits = await GitUtils.get_recent_commits(project_path, target_branch, limit)
 
             return commits
 

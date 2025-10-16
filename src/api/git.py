@@ -433,6 +433,7 @@ async def get_repository_status(
 async def get_commit_history(
     project_id: str = Path(..., description="项目ID"),
     limit: int = Query(50, ge=1, le=200, description="返回记录数量限制"),
+    branch: Optional[str] = Query(None, description="分支名称（缺省为当前分支）"),
     db: AsyncSession = Depends(get_async_session)
 ) -> Dict[str, Any]:
     """
@@ -444,7 +445,7 @@ async def get_commit_history(
     try:
         git_service = GitService(db)
 
-        commits = await git_service.get_commit_history(project_id, limit)
+        commits = await git_service.get_commit_history(project_id, limit, branch)
 
         return {
             "success": True,
@@ -452,7 +453,8 @@ async def get_commit_history(
                 "commits": commits,
                 "total_count": len(commits),
                 "project_id": project_id,
-                "limit": limit
+                "limit": limit,
+                "branch": branch
             }
         }
 

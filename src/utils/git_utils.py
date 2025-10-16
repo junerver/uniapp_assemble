@@ -1017,25 +1017,41 @@ class GitUtils:
         try:
             repo = GitUtils.get_repository(path)
 
-            # 查找分支
-            target_branch = None
-            for head in repo.heads:
-                if head.name == branch_name:
-                    target_branch = head
-                    break
+            # 支持本地与远程分支的多种引用格式
+            ref_candidates: List[str] = []
+            if branch_name.startswith("origin/"):
+                # 远程分支优先使用 refs/remotes/origin/<name>
+                ref_candidates.append(f"refs/remotes/{branch_name}")
+                # 也尝试直接使用 origin/<name>
+                ref_candidates.append(branch_name)
+            else:
+                # 本地分支优先
+                ref_candidates.append(branch_name)
+                # 同名远程分支
+                ref_candidates.append(f"origin/{branch_name}")
+                ref_candidates.append(f"refs/remotes/origin/{branch_name}")
 
-            if not target_branch:
-                return []
+            commits: List[Dict[str, Any]] = []
 
-            commits = []
-            for commit in target_branch.commit.iter_items(max_count=limit):
-                commits.append({
-                    "sha": commit.hexsha,
-                    "short_sha": commit.hexsha[:7],
-                    "message": commit.message.strip(),
-                    "author": str(commit.author),
-                    "committed_date": commit.committed_datetime.isoformat()
-                })
+            # 逐个候选引用尝试，优先拿到有提交的引用
+            for ref in ref_candidates:
+                try:
+                    tmp: List[Dict[str, Any]] = []
+                    for commit in repo.iter_commits(ref, max_count=limit):
+                        tmp.append({
+                            "sha": commit.hexsha,
+                            "hash": commit.hexsha,
+                            "short_sha": commit.hexsha[:7],
+                            "message": (commit.message or "").strip(),
+                            "author": str(commit.author),
+                            "committed_date": commit.committed_datetime.isoformat()
+                        })
+                    if tmp:
+                        commits = tmp
+                        break
+                except Exception:
+                    # 尝试下一个引用
+                    continue
 
             return commits
 

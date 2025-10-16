@@ -1267,6 +1267,9 @@ function initEventListeners() {
             loadWorkspaceStatus(state.currentProject.id);
             // 加载新分支的资源包ID
             loadResourcePackages(state.currentProject.id, selectedBranch);
+            // 同步Git分支选择并刷新提交历史（用于回滚）
+            loadGitBranches();
+            loadCommitHistory();
         }
     });
 
@@ -2366,11 +2369,11 @@ async function checkGitStatus() {
         // 加载备份列表
         await loadGitBackupList();
 
-        // 加载提交历史（用于回滚选择）
-        await loadCommitHistory();
-
-        // 加载分支列表（用于分支操作）
+        // 先加载分支列表（用于分支操作），以便提交历史按正确分支过滤
         await loadGitBranches();
+
+        // 加载提交历史（用于回滚选择，按已选分支）
+        await loadCommitHistory();
 
         // 启用Git操作按钮
         enableGitOperations();
@@ -2884,7 +2887,10 @@ async function loadCommitHistory() {
     if (!state.currentProject) return;
 
     try {
-        const response = await fetch(`${API_BASE}/api/git/projects/${state.currentProject.id}/commits?limit=20`);
+        const branchFromGitSelect = gitElements.gitBranchSource && gitElements.gitBranchSource.value ? gitElements.gitBranchSource.value : null;
+        const preferredBranch = branchFromGitSelect || state.currentBranch || '';
+        const branchParam = preferredBranch ? `&branch=${encodeURIComponent(preferredBranch)}` : '';
+        const response = await fetch(`${API_BASE}/api/git/projects/${state.currentProject.id}/commits?limit=20${branchParam}`);
 
         if (!response.ok) {
             // 可能不是Git仓库，忽略错误
@@ -2912,9 +2918,17 @@ function updateRollbackCommitSelect(commits) {
     select.innerHTML = '<option value="">选择要回滚到的提交</option>';
 
     commits.forEach(commit => {
+        // 兼容后端返回的字段：sha/short_sha/message
+        const sha = commit.sha || commit.hash || '';
+        const shortSha = commit.short_sha || (sha ? sha.substring(0, 8) : '');
+        const message = (commit.message || '').toString();
+
+        // 跳过无有效sha的记录，避免生成不可用选项
+        if (!sha) return;
+
         const option = document.createElement('option');
-        option.value = commit.hash;
-        option.textContent = `${commit.hash.substring(0, 8)} - ${commit.message.substring(0, 50)}${commit.message.length > 50 ? '...' : ''}`;
+        option.value = sha;
+        option.textContent = `${shortSha} - ${message.substring(0, 50)}${message.length > 50 ? '...' : ''}`;
         select.appendChild(option);
     });
 
@@ -2938,7 +2952,8 @@ async function loadGitBranches() {
 
         const data = await response.json();
         const branches = data.branches || [];
-        const currentBranch = data.current_branch;
+        // 优先使用项目选择的分支，其次使用仓库当前分支
+        const currentBranch = state.currentBranch || data.current_branch;
 
         // 更新分支选择框
         updateBranchSelect(branches, currentBranch);
@@ -3295,6 +3310,16 @@ function initGitEventListeners() {
 
     gitElements.btnGitSwitchBranch.addEventListener('click', () => {
         showToast('切换分支功能将在Git集成完成后实现', 'info');
+    });
+
+    // 分支源变更时刷新回滚提交选择（按选中分支加载提交历史）
+    gitElements.gitBranchSource.addEventListener('change', () => {
+        loadCommitHistory();
+    });
+
+    // 回滚下拉框获得焦点时刷新提交历史，确保显示最新分支的提交
+    gitElements.gitRollbackCommit.addEventListener('focus', () => {
+        loadCommitHistory();
     });
 
     // 备份操作
