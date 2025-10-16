@@ -109,14 +109,14 @@ description: "Task list for Android项目资源包替换构建工具 implementat
 
 ### Implementation for User Story 3
 
-- [ ] T036 [P] [US3] Create BuildResult model in `src/models/build_result.py`
-- [ ] T037 [P] [US3] Create APKFile model in `src/models/apk_file.py`
-- [ ] T038 [US3] Implement APK extraction service in `src/services/apk_service.py`
-- [ ] T039 [US3] Create build results API endpoints in `src/api/results.py`
-- [ ] T040 [US3] Implement file download functionality in `src/api/files.py` (extends T018)
-- [ ] T041 [US3] Add APK file detection and metadata extraction
-- [ ] T042 [US3] Create build results display UI in frontend
-- [ ] T043 [US3] Implement download buttons and file management interface
+- [x] T036 [P] [US3] Create BuildResult model in `src/models/build_result.py`
+- [x] T037 [P] [US3] Create APKFile model in `src/models/apk_file.py`
+- [x] T038 [US3] Implement APK extraction service in `src/services/apk_service.py`
+- [x] T039 [US3] Create build results API endpoints in `src/api/results.py`
+- [x] T040 [US3] Implement file download functionality in `src/api/files.py` (extends T018)
+- [x] T041 [US3] Add APK file detection and metadata extraction
+- [x] T042 [US3] Create build results display UI in frontend
+- [x] T043 [US3] Implement download buttons and file management interface
 
 **Checkpoint**: At this point, User Stories 1, 2, AND 3 should all work independently
 
@@ -130,16 +130,16 @@ description: "Task list for Android项目资源包替换构建工具 implementat
 
 ### Implementation for User Story 4
 
-- [ ] T044 [P] [US4] Create GitOperation model in `src/models/git_operation.py`
-- [ ] T045 [P] [US4] Create RepositoryBackup model in `src/models/repository_backup.py`
-- [ ] T046 [US4] Implement GitService for commit/rollback operations in `src/services/git_service.py` (extends T019)
-- [ ] T047 [US4] Create Git operations API endpoints in `src/api/git.py`
-- [ ] T048 [US4] Implement safe Git commit with backup in GitService
-- [ ] T049 [US4] Implement Git rollback with restore functionality
-- [ ] T050 [US4] Add Git operations history tracking
-- [ ] T051 [US4] Create Git operations UI in frontend (commit message input, buttons)
-- [ ] T052 [US4] Implement Git operations status display and feedback
-- [ ] T053 [US4] Add Git operation results display (commit hash, status)
+- [x] T044 [P] [US4] Create GitOperation model in `src/models/git_operation.py`
+- [x] T045 [P] [US4] Create RepositoryBackup model in `src/models/repository_backup.py`
+- [x] T046 [US4] Implement GitService for commit/rollback operations in `src/services/git_service.py` (extends T019)
+- [x] T047 [US4] Create Git operations API endpoints in `src/api/git.py`
+- [x] T048 [US4] Implement safe Git commit with backup in GitService
+- [x] T049 [US4] Implement Git rollback with restore functionality
+- [x] T050 [US4] Add Git operations history tracking
+- [x] T051 [US4] Create Git operations UI in frontend (commit message input, buttons)
+- [x] T052 [US4] Implement Git operations status display and feedback
+- [x] T053 [US4] Add Git operation results display (commit hash, status)
 
 **Checkpoint**: All user stories should now be independently functional
 
@@ -149,15 +149,15 @@ description: "Task list for Android项目资源包替换构建工具 implementat
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T054 [P] Update documentation with implementation details in `README.md`
-- [ ] T055 Code cleanup and refactoring across all services
-- [ ] T056 Performance optimization for file uploads and build monitoring
-- [ ] T057 [P] Add comprehensive error handling and user feedback
-- [ ] T058 Security hardening (file validation, path safety, input sanitization)
-- [ ] T059 Run quickstart.md validation and update installation guide
-- [ ] T060 [P] Add logging configuration and monitoring
-- [ ] T061 [P] Implement health check endpoint in `src/api/health.py`
-- [ ] T062 Final integration testing and bug fixes
+- [x] T054 [P] Update documentation with implementation details in `README.md`
+- [x] T055 Code cleanup and refactoring across all services
+- [x] T056 Performance optimization for file uploads and build monitoring
+- [x] T057 [P] Add comprehensive error handling and user feedback
+- [x] T058 Security hardening (file validation, path safety, input sanitization)
+- [x] T059 Run quickstart.md validation and update installation guide
+- [x] T060 [P] Add logging configuration and monitoring
+- [x] T061 [P] Implement health check endpoint in `src/api/health.py`
+- [x] T062 Final integration testing and bug fixes
 
 ---
 
