@@ -39,6 +39,8 @@ class AndroidProject(Base):
 
     # 关系
     build_tasks = relationship("BuildTask", back_populates="project", cascade="all, delete-orphan")
+    git_operations = relationship("GitOperation", back_populates="project", cascade="all, delete-orphan")
+    repository_backups = relationship("RepositoryBackup", back_populates="project", cascade="all, delete-orphan")
 
 
     def __repr__(self) -> str:
