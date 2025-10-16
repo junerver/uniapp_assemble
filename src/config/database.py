@@ -60,6 +60,10 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
         async with get_async_session() as session:
             # Use session here
             pass
+
+    Note:
+        The session is automatically closed by the async context manager.
+        Do not manually call session.close() as it will cause IllegalStateChangeError.
     """
     async with AsyncSessionLocal() as session:
         try:
@@ -67,8 +71,7 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
         except Exception:
             await session.rollback()
             raise
-        finally:
-            await session.close()
+        # 注意：不需要手动关闭session，async with会自动处理
 
 
 async def create_database_directory() -> None:

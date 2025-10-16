@@ -253,199 +253,208 @@ class BuildService:
 
     async def _execute_resource_replace(self, task_id: str) -> None:
         """执行资源替换任务。"""
-        try:
-            # 导入资源服务（避免循环导入）
-            from .resource_service import ResourceService
-            from .git_service import GitService
+        # 为后台任务创建独立的数据库session
+        # 注意：不能使用self.session，因为它属于API请求的session，会在请求结束后关闭
+        from ..config.database import AsyncSessionLocal
+        from .resource_service import ResourceService
+        from .git_service import GitService
 
-            task = await self.session.get(BuildTask, task_id)
-            if not task:
-                return
+        async with AsyncSessionLocal() as session:
+            try:
+                task = await session.get(BuildTask, task_id)
+                if not task:
+                    return
 
-            project = await self.session.get(AndroidProject, task.project_id)
-            if not project:
-                raise BuildError("项目不存在")
+                project = await session.get(AndroidProject, task.project_id)
+                if not project:
+                    raise BuildError("项目不存在")
 
-            # 创建服务实例
-            resource_service = ResourceService(self.session)
-            git_service = GitService(self.session)
+                # 创建服务实例，使用独立的session
+                resource_service = ResourceService(session)
+                git_service = GitService(session)
 
-            # 更新进度
-            await self._update_task_progress(task_id, 10, "开始资源替换")
+                # 更新进度
+                await self._update_task_progress(task_id, 10, "开始资源替换")
 
-            # 执行Git安全检查
-            await self._update_task_progress(task_id, 20, "执行Git安全检查")
-            await git_service.check_safety(project.path, task.git_branch)
+                # 执行Git安全检查
+                await self._update_task_progress(task_id, 20, "执行Git安全检查")
+                await git_service.check_safety(project.path, task.git_branch)
 
-            # 执行资源替换
-            await self._update_task_progress(task_id, 40, "执行资源替换")
-            result = await resource_service.replace_resources(
-                project.path,
-                task.resource_package_path,
-                task.git_branch,
-                task.config_options or {}
-            )
+                # 执行资源替换
+                await self._update_task_progress(task_id, 40, "执行资源替换")
+                result = await resource_service.replace_resources(
+                    project.path,
+                    task.resource_package_path,
+                    task.git_branch,
+                    task.config_options or {}
+                )
 
-            # 更新进度
-            await self._update_task_progress(task_id, 90, "验证替换结果")
+                # 更新进度
+                await self._update_task_progress(task_id, 90, "验证替换结果")
 
-            # 完成任务
-            task.complete(result)
-            self.session.add(task)
-            await self.session.commit()
+                # 完成任务
+                task.complete(result)
+                session.add(task)
+                await session.commit()
 
-            await self._create_build_log(
-                task.id,
-                BuildLog.create_build_complete_log(task.id, "资源替换", True)
-            )
+                await self._create_build_log(
+                    task.id,
+                    BuildLog.create_build_complete_log(task.id, "资源替换", True)
+                )
 
-            logger.info(f"资源替换任务完成: {task_id}")
+                logger.info(f"资源替换任务完成: {task_id}")
 
-        except Exception as e:
-            error_msg = f"资源替换失败: {str(e)}"
-            logger.error(f"任务 {task_id} 失败: {error_msg}")
+            except Exception as e:
+                error_msg = f"资源替换失败: {str(e)}"
+                logger.error(f"任务 {task_id} 失败: {error_msg}")
 
-            # 更新任务状态
-            task = await self.session.get(BuildTask, task_id)
-            if task:
-                task.fail(error_msg)
-                self.session.add(task)
-                await self.session.commit()
+                # 更新任务状态
+                task = await session.get(BuildTask, task_id)
+                if task:
+                    task.fail(error_msg)
+                    session.add(task)
+                    await session.commit()
 
-            await self._create_build_log(
-                task.id,
-                BuildLog.create_error_log(task.id, error_msg, source="build_service")
-            )
+                await self._create_build_log(
+                    task.id,
+                    BuildLog.create_error_log(task.id, error_msg, source="build_service")
+                )
 
-        finally:
-            # 清理运行中的任务
-            if task_id in self._running_tasks:
-                del self._running_tasks[task_id]
+            finally:
+                # 清理运行中的任务
+                if task_id in self._running_tasks:
+                    del self._running_tasks[task_id]
 
     async def _execute_build(self, task_id: str) -> None:
         """执行构建任务。"""
-        try:
-            from ..utils.gradle_utils import GradleUtils
+        # 为后台任务创建独立的数据库session
+        from ..config.database import AsyncSessionLocal
+        from ..utils.gradle_utils import GradleUtils
 
-            task = await self.session.get(BuildTask, task_id)
-            if not task:
-                return
+        async with AsyncSessionLocal() as session:
+            try:
+                task = await session.get(BuildTask, task_id)
+                if not task:
+                    return
 
-            project = await self.session.get(AndroidProject, task.project_id)
-            if not project:
-                raise BuildError("项目不存在")
+                project = await session.get(AndroidProject, task.project_id)
+                if not project:
+                    raise BuildError("项目不存在")
 
-            # 更新进度
-            await self._update_task_progress(task_id, 10, "准备构建环境")
+                # 更新进度
+                await self._update_task_progress(task_id, 10, "准备构建环境")
 
-            # 执行Gradle构建
-            await self._update_task_progress(task_id, 20, "开始Gradle构建")
-            gradle_utils = GradleUtils(project.path)
+                # 执行Gradle构建
+                await self._update_task_progress(task_id, 20, "开始Gradle构建")
+                gradle_utils = GradleUtils(project.path)
 
-            # 流式执行构建并记录日志
-            result = await self._execute_gradle_with_logging(
-                task_id,
-                gradle_utils,
-                task.config_options or {}
-            )
+                # 流式执行构建并记录日志
+                result = await self._execute_gradle_with_logging(
+                    task_id,
+                    gradle_utils,
+                    task.config_options or {}
+                )
 
-            # 更新进度
-            await self._update_task_progress(task_id, 90, "验证构建结果")
+                # 更新进度
+                await self._update_task_progress(task_id, 90, "验证构建结果")
 
-            # 完成任务
-            task.complete(result)
-            self.session.add(task)
-            await self.session.commit()
+                # 完成任务
+                task.complete(result)
+                session.add(task)
+                await session.commit()
 
-            await self._create_build_log(
-                task.id,
-                BuildLog.create_build_complete_log(task.id, "Gradle构建", True)
-            )
+                await self._create_build_log(
+                    task.id,
+                    BuildLog.create_build_complete_log(task.id, "Gradle构建", True)
+                )
 
-            logger.info(f"构建任务完成: {task_id}")
+                logger.info(f"构建任务完成: {task_id}")
 
-        except Exception as e:
-            error_msg = f"构建失败: {str(e)}"
-            logger.error(f"任务 {task_id} 失败: {error_msg}")
+            except Exception as e:
+                error_msg = f"构建失败: {str(e)}"
+                logger.error(f"任务 {task_id} 失败: {error_msg}")
 
-            # 更新任务状态
-            task = await self.session.get(BuildTask, task_id)
-            if task:
-                task.fail(error_msg)
-                self.session.add(task)
-                await self.session.commit()
+                # 更新任务状态
+                task = await session.get(BuildTask, task_id)
+                if task:
+                    task.fail(error_msg)
+                    session.add(task)
+                    await session.commit()
 
-            await self._create_build_log(
-                task.id,
-                BuildLog.create_error_log(task.id, error_msg, source="build_service")
-            )
+                await self._create_build_log(
+                    task.id,
+                    BuildLog.create_error_log(task.id, error_msg, source="build_service")
+                )
 
-        finally:
-            # 清理运行中的任务
-            if task_id in self._running_tasks:
-                del self._running_tasks[task_id]
+            finally:
+                # 清理运行中的任务
+                if task_id in self._running_tasks:
+                    del self._running_tasks[task_id]
 
     async def _execute_apk_extraction(self, task_id: str) -> None:
         """执行APK提取任务。"""
-        try:
-            from .apk_service import APKService
+        # 为后台任务创建独立的数据库session
+        from ..config.database import AsyncSessionLocal
+        from .apk_service import APKService
 
-            task = await self.session.get(BuildTask, task_id)
-            if not task:
-                return
+        async with AsyncSessionLocal() as session:
+            try:
+                task = await session.get(BuildTask, task_id)
+                if not task:
+                    return
 
-            project = await self.session.get(AndroidProject, task.project_id)
-            if not project:
-                raise BuildError("项目不存在")
+                project = await session.get(AndroidProject, task.project_id)
+                if not project:
+                    raise BuildError("项目不存在")
 
-            # 创建APK服务
-            apk_service = APKService(self.session)
+                # 创建APK服务,使用独立session
+                apk_service = APKService(session)
 
-            # 更新进度
-            await self._update_task_progress(task_id, 10, "开始APK提取")
+                # 更新进度
+                await self._update_task_progress(task_id, 10, "开始APK提取")
 
-            # 提取APK文件
-            await self._update_task_progress(task_id, 50, "扫描APK文件")
-            result = await apk_service.extract_apk_files(
-                project.path,
-                task.config_options or {}
-            )
+                # 提取APK文件
+                await self._update_task_progress(task_id, 50, "扫描APK文件")
+                result = await apk_service.extract_apk_files(
+                    project.path,
+                    task.config_options or {}
+                )
 
-            # 更新进度
-            await self._update_task_progress(task_id, 90, "验证提取结果")
+                # 更新进度
+                await self._update_task_progress(task_id, 90, "验证提取结果")
 
-            # 完成任务
-            task.complete(result)
-            self.session.add(task)
-            await self.session.commit()
+                # 完成任务
+                task.complete(result)
+                session.add(task)
+                await session.commit()
 
-            await self._create_build_log(
-                task.id,
-                BuildLog.create_build_complete_log(task.id, "APK提取", True)
-            )
+                await self._create_build_log(
+                    task.id,
+                    BuildLog.create_build_complete_log(task.id, "APK提取", True)
+                )
 
-            logger.info(f"APK提取任务完成: {task_id}")
+                logger.info(f"APK提取任务完成: {task_id}")
 
-        except Exception as e:
-            error_msg = f"APK提取失败: {str(e)}"
-            logger.error(f"任务 {task_id} 失败: {error_msg}")
+            except Exception as e:
+                error_msg = f"APK提取失败: {str(e)}"
+                logger.error(f"任务 {task_id} 失败: {error_msg}")
 
-            # 更新任务状态
-            task = await self.session.get(BuildTask, task_id)
-            if task:
-                task.fail(error_msg)
-                self.session.add(task)
-                await self.session.commit()
+                # 更新任务状态
+                task = await session.get(BuildTask, task_id)
+                if task:
+                    task.fail(error_msg)
+                    session.add(task)
+                    await session.commit()
 
-            await self._create_build_log(
-                task.id,
-                BuildLog.create_error_log(task.id, error_msg, source="build_service")
-            )
+                await self._create_build_log(
+                    task.id,
+                    BuildLog.create_error_log(task.id, error_msg, source="build_service")
+                )
 
-        finally:
-            # 清理运行中的任务
-            if task_id in self._running_tasks:
-                del self._running_tasks[task_id]
+            finally:
+                # 清理运行中的任务
+                if task_id in self._running_tasks:
+                    del self._running_tasks[task_id]
 
     async def _execute_gradle_with_logging(
         self,
@@ -528,31 +537,38 @@ class BuildService:
 
     async def _update_task_progress(self, task_id: str, progress: int, message: str) -> None:
         """更新任务进度。"""
+        # 为后台任务创建独立的session
+        from ..config.database import AsyncSessionLocal
+
         try:
-            stmt = (
-                update(BuildTask)
-                .where(BuildTask.id == task_id)
-                .values(progress=progress)
-            )
-            await self.session.execute(stmt)
-            await self.session.commit()
+            async with AsyncSessionLocal() as session:
+                stmt = (
+                    update(BuildTask)
+                    .where(BuildTask.id == task_id)
+                    .values(progress=progress)
+                )
+                await session.execute(stmt)
+                await session.commit()
 
-            # 创建进度日志
-            await self._create_build_log(
-                task_id,
-                BuildLog.create_progress_log(task_id, progress, message)
-            )
+                # 创建进度日志
+                log = BuildLog.create_progress_log(task_id, progress, message)
+                session.add(log)
+                await session.commit()
 
-            logger.debug(f"任务 {task_id} 进度更新到 {progress}%: {message}")
+                logger.debug(f"任务 {task_id} 进度更新到 {progress}%: {message}")
 
         except Exception as e:
             logger.error(f"更新任务进度失败: {e}")
 
     async def _create_build_log(self, task_id: str, log: BuildLog) -> None:
         """创建构建日志。"""
+        # 为后台任务创建独立的session
+        from ..config.database import AsyncSessionLocal
+
         try:
-            self.session.add(log)
-            await self.session.commit()
+            async with AsyncSessionLocal() as session:
+                session.add(log)
+                await session.commit()
         except Exception as e:
             logger.error(f"创建构建日志失败: {e}")
 
