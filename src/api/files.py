@@ -193,6 +193,91 @@ async def get_directory_info(
         raise HTTPException(status_code=500, detail=f"获取目录信息失败: {str(e)}")
 
 
+@router.get("/download-base64")
+async def download_file_base64(
+    encoded_path: str = Query(..., description="Base64编码的文件路径")
+) -> FileResponse:
+    """
+    使用Base64编码的文件路径下载文件
+
+    Args:
+        encoded_path: Base64编码的文件路径
+
+    Returns:
+        文件下载响应
+    """
+    try:
+        import base64
+        from pathlib import Path
+
+        logger.info(f"[BASE64 DOWNLOAD] 收到编码路径: {encoded_path[:50]}...")
+        logger.info(f"[BASE64 DOWNLOAD] 已更新版本 - 测试端点")
+
+        # Base64解码
+        try:
+            decoded_bytes = base64.b64decode(encoded_path)
+            decoded_path = decoded_bytes.decode('utf-8')
+            logger.info(f"[BASE64 DOWNLOAD] 解码后路径: {decoded_path}")
+        except Exception as decode_error:
+            logger.error(f"[BASE64 DOWNLOAD] Base64解码失败: {decode_error}")
+            raise HTTPException(status_code=400, detail="无效的Base64编码路径")
+
+        # 安全检查 - 确保是合法的文件路径
+        file_system_path = Path(decoded_path)
+
+        # 基本安全检查
+        dangerous_patterns = ["..", "~", "/etc/", "/bin/", "/usr/", "C:\\Windows", "C:\\Program"]
+        if any(pattern in decoded_path for pattern in dangerous_patterns):
+            raise HTTPException(status_code=403, detail="不允许的路径格式")
+
+        # 只允许特定的文件类型下载
+        allowed_extensions = ['.apk', '.jar', '.log', '.json', '.zip', '.rar', '.7z']
+        if not any(decoded_path.lower().endswith(ext) for ext in allowed_extensions):
+            raise HTTPException(status_code=403, detail="不允许的文件类型")
+
+        # 检查文件是否存在
+        if not file_system_path.exists():
+            logger.error(f"[BASE64 DOWNLOAD] 文件不存在: {file_system_path}")
+            raise HTTPException(status_code=404, detail=f"文件不存在: {decoded_path}")
+
+        if not file_system_path.is_file():
+            raise HTTPException(status_code=400, detail="指定的路径不是文件")
+
+        # 获取文件名
+        filename = file_system_path.name
+
+        # 根据文件扩展名确定媒体类型
+        media_type = "application/octet-stream"  # 默认
+        if filename.endswith('.apk'):
+            media_type = "application/vnd.android.package-archive"
+        elif filename.endswith('.jar'):
+            media_type = "application/java-archive"
+        elif filename.endswith('.log'):
+            media_type = "text/plain"
+        elif filename.endswith('.json'):
+            media_type = "application/json"
+        elif filename.endswith('.zip'):
+            media_type = "application/zip"
+        elif filename.endswith('.rar'):
+            media_type = "application/x-rar-compressed"
+        elif filename.endswith('.7z'):
+            media_type = "application/x-7z-compressed"
+
+        logger.info(f"[BASE64 DOWNLOAD] 文件下载成功: {file_system_path} -> {filename}")
+
+        return FileResponse(
+            path=str(file_system_path),
+            filename=filename,
+            media_type=media_type
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[BASE64 DOWNLOAD] 文件下载失败: {e}")
+        raise HTTPException(status_code=500, detail=f"文件下载失败: {str(e)}")
+
+
 @router.get("/{file_id}/info")
 async def get_file_info(
     file_id: str,

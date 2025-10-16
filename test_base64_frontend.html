@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Base64编码测试</title>
+    <script>
+        function encodeBase64(str) {
+            try {
+                // 使用浏览器内置的Base64编码
+                return btoa(unescape(encodeURIComponent(str)));
+            } catch (error) {
+                console.error('Base64编码失败:', error);
+                return null;
+            }
+        }
+
+        function testEncoding() {
+            const testPath = "D:\\dev\\project\\govCarAppPlugin\\app\\build\\outputs\\apk\\release\\GovCarApp_3.0.30(330)_release_202510161634.apk";
+            const encoded = encodeBase64(testPath);
+
+            console.log("原始路径:", testPath);
+            console.log("Base64编码:", encoded);
+
+            // 创建下载链接
+            const link = document.createElement('a');
+            link.href = `http://localhost:8000/api/files/download-base64?encoded_path=${encoded}`;
+            link.download = testPath.split(/[/\\]/).pop();
+
+            console.log("下载链接:", link.href);
+
+            // 添加到页面
+            document.getElementById('result').innerHTML = `
+                <p><strong>原始路径:</strong> ${testPath}</p>
+                <p><strong>Base64编码:</strong> ${encoded}</p>
+                <p><strong>下载链接:</strong> <a href="${link.href}" target="_blank">${link.href}</a></p>
+                <p><button onclick="testDownload()">测试下载</button></p>
+            `;
+        }
+
+        function testDownload() {
+            const testPath = "D:\\dev\\project\\govCarAppPlugin\\app\\build\\outputs\\apk\\release\\GovCarApp_3.0.30(330)_release_202510161634.apk";
+            const encoded = encodeBase64(testPath);
+
+            const link = document.createElement('a');
+            link.href = `http://localhost:8000/api/files/download-base64?encoded_path=${encoded}`;
+            link.download = testPath.split(/[/\\]/).pop();
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    </script>
+</head>
+<body>
+    <h1>Base64编码APK下载测试</h1>
+    <button onclick="testEncoding()">测试编码和生成下载链接</button>
+    <div id="result"></div>
+</body>
+</html>

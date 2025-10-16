@@ -1719,13 +1719,13 @@ function createApkItem(apk) {
                 </div>
             </div>
             <div class="flex items-center space-x-2">
-                <button onclick="showApkDetails('${apk.file_path}')" class="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors" title="查看详情">
+                <button data-filepath="${apk.file_path}" onclick="showApkDetails(this.dataset.filepath)" class="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors" title="查看详情">
                     📋 详情
                 </button>
-                <button onclick="addToCompare('${apk.file_path}')" class="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 transition-colors" title="添加到比较">
+                <button data-filepath="${apk.file_path}" onclick="addToCompare(this.dataset.filepath)" class="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 transition-colors" title="添加到比较">
                     ⚖️ 比较
                 </button>
-                <button onclick="downloadApk('${apk.file_path}')" class="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors" title="下载APK">
+                <button data-filepath="${apk.file_path}" onclick="downloadApk(this.dataset.filepath)" class="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors" title="下载APK">
                     ⬇️ 下载
                 </button>
             </div>
@@ -2169,13 +2169,36 @@ function displayComparisonResult(comparison) {
 }
 
 /**
- * 下载APK文件
+ * 将字符串编码为Base64
+ */
+function encodeBase64(str) {
+    try {
+        // 使用浏览器内置的Base64编码
+        return btoa(unescape(encodeURIComponent(str)));
+    } catch (error) {
+        console.error('Base64编码失败:', error);
+        return null;
+    }
+}
+
+/**
+ * 下载APK文件（使用Base64编码方案）
  */
 function downloadApk(apkFilePath) {
+    // 清理路径中的控制字符
+    const cleanPath = apkFilePath.replace(/[\x00-\x1F\x7F]/g, '');
+
+    // 使用Base64编码文件路径
+    const encodedPath = encodeBase64(cleanPath);
+    if (!encodedPath) {
+        showToast('文件路径编码失败', 'error');
+        return;
+    }
+
     // 创建下载链接
     const link = document.createElement('a');
-    link.href = `/api/files/download?file_path=${encodeURIComponent(apkFilePath)}`;
-    link.download = apkFilePath.split(/[/\\]/).pop(); // 获取文件名
+    link.href = `/api/files/download-base64?encoded_path=${encodedPath}`;
+    link.download = cleanPath.split(/[/\\]/).pop(); // 获取文件名
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
