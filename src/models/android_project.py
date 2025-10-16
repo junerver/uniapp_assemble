@@ -9,10 +9,11 @@ from typing import Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import Boolean, Column, DateTime, String, Text
-from .base import BaseSQLModel
+from sqlalchemy.orm import relationship
+from ..config.database import Base
 
 
-class AndroidProject(BaseSQLModel):
+class AndroidProject(Base):
     """Android项目配置模型。
 
     管理Android项目的基本配置信息，包括项目名称、路径、描述等。
@@ -36,7 +37,10 @@ class AndroidProject(BaseSQLModel):
     created_at: datetime = Column(DateTime, default=datetime.utcnow)
     updated_at: datetime = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-  
+    # 关系
+    build_tasks = relationship("BuildTask", back_populates="project", cascade="all, delete-orphan")
+
+
     def __repr__(self) -> str:
         return f"<AndroidProject(id={self.id}, name='{self.name}', path='{self.path}')>"
 

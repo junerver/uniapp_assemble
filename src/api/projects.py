@@ -762,3 +762,138 @@ async def reset_workspace(
     except Exception as e:
         logger.error(f"重置工作区失败: {e}")
         raise HTTPException(status_code=500, detail=f"重置工作区失败: {str(e)}")
+
+
+# 构建相关的新端点
+@router.get("/{project_id}/build-info")
+async def get_project_build_info(
+    project_id: str,
+    service: AndroidProjectService = Depends(get_project_service)
+) -> Dict[str, Any]:
+    """
+    获取项目的构建信息。
+
+    Args:
+        project_id: 项目ID
+        service: Android项目服务
+
+    Returns:
+        构建信息，包括Git信息、Gradle信息等
+
+    Raises:
+        HTTPException: 项目不存在
+    """
+    try:
+        build_info = await service.get_project_build_info(project_id)
+        logger.info(f"获取项目构建信息: {project_id}")
+        return build_info
+
+    except ProjectNotFoundError as e:
+        raise create_not_found_exception("Project", project_id)
+    except Exception as e:
+        logger.error(f"获取项目构建信息失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取项目构建信息失败: {str(e)}")
+
+
+@router.get("/{project_id}/build-validation")
+async def validate_build_environment(
+    project_id: str,
+    service: AndroidProjectService = Depends(get_project_service)
+) -> Dict[str, Any]:
+    """
+    验证项目的构建环境。
+
+    Args:
+        project_id: 项目ID
+        service: Android项目服务
+
+    Returns:
+        构建环境验证结果
+
+    Raises:
+        HTTPException: 项目不存在
+    """
+    try:
+        validation_result = await service.validate_build_environment(project_id)
+        logger.info(f"构建环境验证完成: {project_id}, 有效: {validation_result['valid']}")
+        return validation_result
+
+    except ProjectNotFoundError as e:
+        raise create_not_found_exception("Project", project_id)
+    except Exception as e:
+        logger.error(f"构建环境验证失败: {e}")
+        raise HTTPException(status_code=500, detail=f"构建环境验证失败: {str(e)}")
+
+
+@router.post("/{project_id}/prepare-build")
+async def prepare_build(
+    project_id: str,
+    task_type: str = Query(..., description="任务类型"),
+    git_branch: str = Query(..., description="Git分支"),
+    resource_package_path: Optional[str] = Query(None, description="资源包路径"),
+    config_options: Optional[Dict[str, Any]] = None,
+    service: AndroidProjectService = Depends(get_project_service)
+) -> Dict[str, Any]:
+    """
+    为项目准备构建任务。
+
+    Args:
+        project_id: 项目ID
+        task_type: 任务类型
+        git_branch: Git分支
+        resource_package_path: 资源包路径
+        config_options: 构建配置选项
+        service: Android项目服务
+
+    Returns:
+        构建准备结果
+
+    Raises:
+        HTTPException: 项目不存在或验证失败
+    """
+    try:
+        build_prep = await service.create_build_task_for_project(
+            project_id=project_id,
+            task_type=task_type,
+            git_branch=git_branch,
+            resource_package_path=resource_package_path,
+            config_options=config_options or {}
+        )
+        logger.info(f"构建任务准备完成: {project_id}, 类型: {task_type}")
+        return build_prep
+
+    except ProjectNotFoundError as e:
+        raise create_not_found_exception("Project", project_id)
+    except Exception as e:
+        logger.error(f"准备构建任务失败: {e}")
+        raise HTTPException(status_code=500, detail=f"准备构建任务失败: {str(e)}")
+
+
+@router.get("/{project_id}/branch-info")
+async def get_project_branch_info(
+    project_id: str,
+    service: AndroidProjectService = Depends(get_project_service)
+) -> Dict[str, Any]:
+    """
+    获取项目的Git分支信息（使用AndroidProjectService的新方法）。
+
+    Args:
+        project_id: 项目ID
+        service: Android项目服务
+
+    Returns:
+        分支信息
+
+    Raises:
+        HTTPException: 项目不存在
+    """
+    try:
+        branch_info = await service.get_project_branches(project_id)
+        logger.info(f"获取项目分支信息: {project_id}")
+        return branch_info
+
+    except ProjectNotFoundError as e:
+        raise create_not_found_exception("Project", project_id)
+    except Exception as e:
+        logger.error(f"获取项目分支信息失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取项目分支信息失败: {str(e)}")

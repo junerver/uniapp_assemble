@@ -15,10 +15,17 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.orm import DeclarativeBase
 
 from .settings import get_settings
 
 settings = get_settings()
+
+
+class Base(DeclarativeBase):
+    """SQLAlchemy Base class for all models."""
+    pass
+
 
 # Create async engine for SQLite
 engine = create_async_engine(

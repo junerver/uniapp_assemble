@@ -12,10 +12,12 @@ from pathlib import Path
 # 添加src目录到Python路径
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from src.config.database import engine, AsyncSessionLocal
+from src.config.database import engine, AsyncSessionLocal, Base
 from src.models.base import BaseSQLModel
 from src.models.android_project import AndroidProject
 from src.models.project_config import ProjectConfig
+from src.models.build_task import BuildTask
+from src.models.build_log import BuildLog
 
 
 async def init_database():
@@ -25,9 +27,10 @@ async def init_database():
     # 导入所有模型以确保它们被注册到BaseSQLModel.metadata
     print("导入模型...")
 
-    # 创建所有表
+    # 创建所有表 - 先创建BaseSQLModel的表，再创建Base的表
     async with engine.begin() as conn:
         await conn.run_sync(BaseSQLModel.metadata.create_all)
+        await conn.run_sync(Base.metadata.create_all)
 
     print("数据库初始化完成！")
 

@@ -11,9 +11,14 @@ from typing import Any, Dict, Optional
 from fastapi import HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from pydantic import ValidationError
+from pydantic import ValidationError as PydanticValidationError
 
 logger = logging.getLogger(__name__)
+
+
+class ValidationError(Exception):
+    """Validation error (alias for compatibility)."""
+    pass
 
 
 class BaseCustomException(Exception):
@@ -31,6 +36,17 @@ class BaseCustomException(Exception):
         self.error_code = error_code or self.__class__.__name__
         self.details = details or {}
         super().__init__(self.message)
+
+
+class BuildError(BaseCustomException):
+    """Build operation related exceptions."""
+
+    def __init__(
+        self,
+        message: str = "Build operation failed",
+        details: Optional[Dict[str, Any]] = None
+    ) -> None:
+        super().__init__(message, "BUILD_ERROR", details)
 
 
 class DatabaseException(BaseCustomException):
@@ -287,7 +303,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 
-async def pydantic_validation_exception_handler(request: Request, exc: ValidationError) -> JSONResponse:
+async def pydantic_validation_exception_handler(request: Request, exc: PydanticValidationError) -> JSONResponse:
     """Handle Pydantic ValidationError instances."""
     return format_error_response(
         message="Data validation failed",
@@ -363,5 +379,5 @@ def setup_exception_handlers(app) -> None:
     """
     app.add_exception_handler(HTTPException, http_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
-    app.add_exception_handler(ValidationError, pydantic_validation_exception_handler)
+    app.add_exception_handler(PydanticValidationError, pydantic_validation_exception_handler)
     app.add_exception_handler(Exception, general_exception_handler)

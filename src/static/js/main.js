@@ -7,8 +7,12 @@ const state = {
     currentProject: null,
     currentBranch: null,
     uploadedFiles: [],
-    buildStatus: 'idle' // idle, running, success, error
+    buildStatus: 'idle', // idle, running, success, error
+    buildTaskId: null // 当前构建任务ID
 };
+
+// 实时日志流相关
+let logEventSource = null;
 
 // API基础URL
 const API_BASE = '';
@@ -127,6 +131,11 @@ async function loadProjectDetails(projectId) {
         elements.btnDeleteProject.disabled = false;
         elements.branchSelect.disabled = false;
         elements.btnRefreshBranches.disabled = false;
+
+        // 启用APK扫描按钮
+        if (apkElements.btnScanApks) {
+            apkElements.btnScanApks.disabled = false;
+        }
 
         // 加载工作区状态
         await loadWorkspaceStatus(projectId);
@@ -266,6 +275,11 @@ async function deleteProject(projectId) {
         elements.branchSelect.disabled = true;
         elements.btnRefreshBranches.disabled = true;
         elements.btnDeleteProject.disabled = true;
+
+        // 禁用APK扫描按钮
+        if (apkElements.btnScanApks) {
+            apkElements.btnScanApks.disabled = true;
+        }
 
         // 刷新项目列表
         await loadProjects();
@@ -540,6 +554,213 @@ function addBuildLog(message, type = 'info') {
 }
 
 /**
+ * 启动实时日志流
+ */
+function startLogStreaming(taskId) {
+    if (!taskId) {
+        console.error('任务ID不能为空');
+        return;
+    }
+
+    // 保存任务ID
+    state.buildTaskId = taskId;
+
+    // 如果已有现有的EventSource，先关闭它
+    if (logEventSource) {
+        logEventSource.close();
+        logEventSource = null;
+    }
+
+    try {
+        // 创建EventSource连接到日志流API
+        logEventSource = new EventSource(`${API_BASE}/api/builds/tasks/${taskId}/logs/stream`);
+
+        // 监听连接建立事件
+        logEventSource.addEventListener('open', () => {
+            console.log('日志流连接已建立');
+            addBuildLog('已连接到实时日志流', 'success');
+        });
+
+        // 监听消息事件
+        logEventSource.addEventListener('message', (event) => {
+            try {
+                const logData = JSON.parse(event.data);
+
+                // 解析日志数据
+                if (logData.message) {
+                    let logType = 'info';
+
+                    // 根据日志级别设置显示样式
+                    if (logData.level === 'ERROR') {
+                        logType = 'error';
+                    } else if (logData.level === 'WARNING') {
+                        logType = 'warning';
+                    } else if (logData.level === 'SUCCESS' || logData.message.includes('成功') || logData.message.includes('完成')) {
+                        logType = 'success';
+                    }
+
+                    // 添加日志到界面
+                    addBuildLog(logData.message, logType);
+
+                    // 如果有进度信息，更新进度显示
+                    if (logData.progress !== undefined) {
+                        updateBuildProgress(logData.progress, logData.message);
+                    }
+                }
+            } catch (error) {
+                console.error('解析日志数据失败:', error);
+                // 如果解析失败，直接显示原始消息
+                addBuildLog(event.data, 'info');
+            }
+        });
+
+        // 监听连接关闭事件
+        logEventSource.addEventListener('error', (event) => {
+            console.error('日志流连接错误:', event);
+            addBuildLog('日志流连接中断，尝试重新连接...', 'warning');
+
+            // 尝试重新连接
+            setTimeout(() => {
+                if (state.buildTaskId === taskId && state.buildStatus === 'running') {
+                    console.log('尝试重新连接日志流...');
+                    startLogStreaming(taskId);
+                }
+            }, 3000); // 3秒后重试
+        });
+
+        // 监听自定义的构建完成事件
+        logEventSource.addEventListener('build_complete', (event) => {
+            try {
+                const result = JSON.parse(event.data);
+                handleBuildComplete(result);
+            } catch (error) {
+                console.error('解析构建完成事件失败:', error);
+            }
+        });
+
+        // 监听自定义的构建失败事件
+        logEventSource.addEventListener('build_failed', (event) => {
+            try {
+                const error = JSON.parse(event.data);
+                handleBuildFailed(error);
+            } catch (error) {
+                console.error('解析构建失败事件失败:', error);
+            }
+        });
+
+    } catch (error) {
+        console.error('创建日志流连接失败:', error);
+        addBuildLog(`创建日志流连接失败: ${error.message}`, 'error');
+    }
+}
+
+/**
+ * 停止日志流
+ */
+function stopLogStreaming() {
+    if (logEventSource) {
+        logEventSource.close();
+        logEventSource = null;
+        console.log('日志流已停止');
+    }
+
+    // 清空任务ID
+    state.buildTaskId = null;
+}
+
+/**
+ * 更新构建进度
+ */
+function updateBuildProgress(progress, message) {
+    // 更新进度条（如果有）
+    const progressBar = document.getElementById('build-progress-bar');
+    if (progressBar) {
+        progressBar.style.width = `${progress}%`;
+    }
+
+    // 更新进度文本（如果有）
+    const progressText = document.getElementById('build-progress-text');
+    if (progressText) {
+        progressText.textContent = `${progress}% - ${message}`;
+    }
+}
+
+/**
+ * 处理构建完成
+ */
+function handleBuildComplete(result) {
+    console.log('构建完成:', result);
+
+    addBuildLog('构建任务完成！', 'success');
+
+    // 显示构建结果
+    if (elements.buildResult) {
+        elements.buildResult.classList.remove('hidden');
+        elements.buildResult.innerHTML = `
+            <div class="p-4 bg-green-50 border border-green-200 rounded-md">
+                <h4 class="text-green-800 font-semibold mb-2">构建完成</h4>
+                <div class="text-sm text-green-700">
+                    <p>构建时间: ${result.build_time ? `${result.build_time}秒` : '未知'}</p>
+                    <p>构建产物: ${result.artifacts ? result.artifacts.length : 0} 个</p>
+                    ${result.artifacts && result.artifacts.length > 0 ?
+                        `<div class="mt-2">
+                            <p class="font-medium">生成的文件:</p>
+                            <ul class="list-disc list-inside text-xs">
+                                ${result.artifacts.map(artifact => `<li>${artifact}</li>`).join('')}
+                            </ul>
+                        </div>` : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    // 恢复UI状态
+    elements.btnStartBuild.classList.remove('hidden');
+    elements.btnStopBuild.classList.add('hidden');
+    state.buildStatus = 'success';
+
+    // 停止日志流
+    stopLogStreaming();
+
+    // 显示成功通知
+    showToast('构建任务完成！', 'success');
+}
+
+/**
+ * 处理构建失败
+ */
+function handleBuildFailed(error) {
+    console.error('构建失败:', error);
+
+    addBuildLog('构建任务失败！', 'error');
+
+    // 显示错误结果
+    if (elements.buildResult) {
+        elements.buildResult.classList.remove('hidden');
+        elements.buildResult.innerHTML = `
+            <div class="p-4 bg-red-50 border border-red-200 rounded-md">
+                <h4 class="text-red-800 font-semibold mb-2">构建失败</h4>
+                <div class="text-sm text-red-700">
+                    <p>错误信息: ${error.error || error.message || '未知错误'}</p>
+                    <p>失败原因: ${error.reason || '请查看日志了解详细信息'}</p>
+                </div>
+            </div>
+        `;
+    }
+
+    // 恢复UI状态
+    elements.btnStartBuild.classList.remove('hidden');
+    elements.btnStopBuild.classList.add('hidden');
+    state.buildStatus = 'error';
+
+    // 停止日志流
+    stopLogStreaming();
+
+    // 显示失败通知
+    showToast('构建任务失败！', 'error');
+}
+
+/**
  * 初始化事件监听器
  */
 function initEventListeners() {
@@ -647,30 +868,127 @@ function initEventListeners() {
     });
 
     // 开始构建
-    elements.btnStartBuild.addEventListener('click', () => {
-        elements.buildLogContainer.classList.remove('hidden');
-        elements.btnStartBuild.classList.add('hidden');
-        elements.btnStopBuild.classList.remove('hidden');
-        state.buildStatus = 'running';
+    elements.btnStartBuild.addEventListener('click', async () => {
+        if (!state.currentProject || !state.currentBranch || state.uploadedFiles.length === 0) {
+            showToast('请先选择项目、分支并上传资源包', 'warning');
+            return;
+        }
 
-        // 清空日志
-        elements.buildLog.innerHTML = '';
-        addBuildLog('准备开始构建...');
-        addBuildLog('验证项目配置...', 'info');
-        addBuildLog('检查资源包...', 'info');
+        try {
+            elements.buildLogContainer.classList.remove('hidden');
+            elements.btnStartBuild.classList.add('hidden');
+            elements.btnStopBuild.classList.remove('hidden');
+            state.buildStatus = 'running';
 
-        // TODO: 实现实际的构建逻辑
-        setTimeout(() => {
-            addBuildLog('构建功能待实现 (User Story 2)', 'warning');
-        }, 1000);
+            // 清空日志
+            elements.buildLog.innerHTML = '';
+            addBuildLog('准备开始构建...');
+
+            // 1. 验证构建环境
+            addBuildLog('验证构建环境...', 'info');
+            const validationResponse = await fetch(`${API_BASE}/api/projects/${state.currentProject.id}/build-validation`);
+            const validation = await validationResponse.json();
+
+            if (!validation.valid) {
+                throw new Error(`构建环境验证失败: ${validation.issues.join(', ')}`);
+            }
+
+            addBuildLog('构建环境验证通过', 'success');
+
+            // 2. 创建构建任务
+            addBuildLog('创建构建任务...', 'info');
+            const taskResponse = await fetch(`${API_BASE}/api/builds/tasks`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    project_id: state.currentProject.id,
+                    task_type: 'resource_replace', // 或根据需要选择
+                    git_branch: state.currentBranch,
+                    resource_package_path: state.uploadedFiles[0].file_path,
+                    config_options: {
+                        replace_mode: 'backup_existing',
+                        parallel: true,
+                        daemon: true,
+                        stacktrace: false
+                    }
+                })
+            });
+
+            if (!taskResponse.ok) {
+                const error = await taskResponse.json();
+                throw new Error(error.detail || '创建构建任务失败');
+            }
+
+            const task = await taskResponse.json();
+            addBuildLog(`构建任务创建成功: ${task.id}`, 'success');
+
+            // 3. 开始执行构建
+            addBuildLog('开始执行构建...', 'info');
+            const startResponse = await fetch(`${API_BASE}/api/builds/tasks/${task.id}/start`, {
+                method: 'POST'
+            });
+
+            if (!startResponse.ok) {
+                const error = await startResponse.json();
+                throw new Error(error.detail || '启动构建任务失败');
+            }
+
+            addBuildLog('构建任务已启动', 'success');
+
+            // 4. 启动实时日志流
+            startLogStreaming(task.id);
+
+        } catch (error) {
+            console.error('构建失败:', error);
+            addBuildLog(`构建失败: ${error.message}`, 'error');
+
+            // 恢复UI状态
+            elements.btnStartBuild.classList.remove('hidden');
+            elements.btnStopBuild.classList.add('hidden');
+            state.buildStatus = 'idle';
+
+            showToast('构建失败: ' + error.message, 'error');
+        }
     });
 
     // 停止构建
-    elements.btnStopBuild.addEventListener('click', () => {
-        elements.btnStartBuild.classList.remove('hidden');
-        elements.btnStopBuild.classList.add('hidden');
-        state.buildStatus = 'idle';
-        addBuildLog('构建已停止', 'warning');
+    elements.btnStopBuild.addEventListener('click', async () => {
+        if (!state.buildTaskId) {
+            showToast('没有正在运行的构建任务', 'warning');
+            return;
+        }
+
+        try {
+            addBuildLog('正在停止构建任务...', 'info');
+
+            const response = await fetch(`${API_BASE}/api/builds/tasks/${state.buildTaskId}/cancel`, {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || '停止构建任务失败');
+            }
+
+            addBuildLog('构建任务已停止', 'warning');
+
+            // 停止日志流
+            stopLogStreaming();
+
+            // 恢复UI状态
+            elements.btnStartBuild.classList.remove('hidden');
+            elements.btnStopBuild.classList.add('hidden');
+            state.buildStatus = 'idle';
+
+            showToast('构建任务已停止', 'info');
+
+        } catch (error) {
+            console.error('停止构建失败:', error);
+            addBuildLog(`停止构建失败: ${error.message}`, 'error');
+            showToast('停止构建失败: ' + error.message, 'error');
+        }
     });
 
     // 清空日志
@@ -696,3 +1014,766 @@ async function init() {
 
 // 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', init);
+
+// 页面卸载时清理资源
+window.addEventListener('beforeunload', () => {
+    stopLogStreaming();
+});
+
+// ===== APK管理功能 =====
+
+// APK相关状态
+const apkState = {
+    apkList: [],
+    currentFilter: '',
+    currentSort: 'modified_time',
+    buildVariants: []
+};
+
+// APK相关DOM元素
+const apkElements = {
+    // APK管理
+    btnScanApks: document.getElementById('btn-scan-apks'),
+    btnApkSettings: document.getElementById('btn-apk-settings'),
+    apkManagementContainer: document.getElementById('apk-management-container'),
+
+    // APK统计
+    apkCount: document.getElementById('apk-count'),
+    apkTotalSize: document.getElementById('apk-total-size'),
+    apkVariants: document.getElementById('apk-variants'),
+    apkLatestTime: document.getElementById('apk-latest-time'),
+
+    // APK筛选和排序
+    apkVariantFilter: document.getElementById('apk-variant-filter'),
+    apkSortBy: document.getElementById('apk-sort-by'),
+    btnRefreshApks: document.getElementById('btn-refresh-apks'),
+
+    // APK列表
+    apkLoading: document.getElementById('apk-loading'),
+    apkList: document.getElementById('apk-list'),
+    apkEmpty: document.getElementById('apk-empty'),
+
+    // APK详情模态框
+    modalApkDetails: document.getElementById('modal-apk-details'),
+    btnCloseApkModal: document.getElementById('btn-close-apk-modal'),
+    apkDetailsContent: document.getElementById('apk-details-content'),
+
+    // APK比较模态框
+    modalApkCompare: document.getElementById('modal-apk-compare'),
+    btnCloseCompareModal: document.getElementById('btn-close-compare-modal'),
+    compareApk1: document.getElementById('compare-apk1'),
+    compareApk2: document.getElementById('compare-apk2'),
+    btnStartCompare: document.getElementById('btn-start-compare'),
+    apkCompareResult: document.getElementById('apk-compare-result')
+};
+
+/**
+ * 格式化文件大小
+ */
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+/**
+ * 格式化时间戳
+ */
+function formatTimestamp(timestamp) {
+    if (!timestamp) return '-';
+    const date = new Date(timestamp * 1000);
+    return date.toLocaleString('zh-CN');
+}
+
+/**
+ * 扫描APK文件
+ */
+async function scanApkFiles() {
+    if (!state.currentProject) {
+        showToast('请先选择项目', 'warning');
+        return;
+    }
+
+    try {
+        // 显示加载状态
+        apkElements.apkLoading.classList.remove('hidden');
+        apkElements.apkList.classList.add('hidden');
+        apkElements.apkEmpty.classList.add('hidden');
+
+        // 执行扫描
+        const response = await fetch(`${API_BASE}/api/apks/projects/${state.currentProject.id}/apks`, {
+            method: 'GET'
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || '扫描APK文件失败');
+        }
+
+        const result = await response.json();
+        apkState.apkList = result.apk_files || [];
+
+        // 更新统计信息
+        updateApkStats(result);
+
+        // 更新构建变体筛选器
+        updateApkVariantFilter();
+
+        // 显示APK列表
+        displayApkList();
+
+        // 更新步骤指示器
+        updateStepIndicator(4, 'completed');
+
+        showToast(`扫描完成，找到 ${result.total_count} 个APK文件`, 'success');
+
+    } catch (error) {
+        console.error('扫描APK文件失败:', error);
+        showToast(error.message, 'error');
+
+        // 显示空状态
+        apkElements.apkLoading.classList.add('hidden');
+        apkElements.apkEmpty.classList.remove('hidden');
+    }
+}
+
+/**
+ * 更新APK统计信息
+ */
+function updateApkStats(result) {
+    apkElements.apkCount.textContent = result.total_count || 0;
+    apkElements.apkTotalSize.textContent = formatFileSize(result.total_size || 0);
+
+    // 计算构建变体数量
+    const variants = new Set();
+    apkState.apkList.forEach(apk => {
+        if (apk.build_variant) {
+            variants.add(apk.build_variant);
+        }
+    });
+    apkElements.apkVariants.textContent = variants.size;
+
+    // 显示最新构建时间
+    if (apkState.apkList.length > 0) {
+        const latestApk = apkState.apkList.reduce((latest, apk) => {
+            return (apk.modified_time > latest.modified_time) ? apk : latest;
+        });
+        apkElements.apkLatestTime.textContent = formatTimestamp(latestApk.modified_time);
+    } else {
+        apkElements.apkLatestTime.textContent = '-';
+    }
+}
+
+/**
+ * 更新APK构建变体筛选器
+ */
+function updateApkVariantFilter() {
+    const variants = new Set();
+    apkState.apkList.forEach(apk => {
+        if (apk.build_variant) {
+            variants.add(apk.build_variant);
+        }
+    });
+
+    apkElements.apkVariantFilter.innerHTML = '<option value="">所有构建变体</option>';
+    Array.from(variants).sort().forEach(variant => {
+        const option = document.createElement('option');
+        option.value = variant;
+        option.textContent = variant;
+        apkElements.apkVariantFilter.appendChild(option);
+    });
+}
+
+/**
+ * 显示APK列表
+ */
+function displayApkList() {
+    // 隐藏加载状态
+    apkElements.apkLoading.classList.add('hidden');
+
+    // 如果没有APK文件，显示空状态
+    if (apkState.apkList.length === 0) {
+        apkElements.apkEmpty.classList.remove('hidden');
+        apkElements.apkList.classList.add('hidden');
+        return;
+    }
+
+    // 显示APK列表
+    apkElements.apkEmpty.classList.add('hidden');
+    apkElements.apkList.classList.remove('hidden');
+    apkElements.apkList.innerHTML = '';
+
+    // 应用筛选和排序
+    let filteredApks = filterAndSortApks();
+
+    // 生成APK列表HTML
+    filteredApks.forEach(apk => {
+        const apkItem = createApkItem(apk);
+        apkElements.apkList.appendChild(apkItem);
+    });
+}
+
+/**
+ * 创建APK列表项
+ */
+function createApkItem(apk) {
+    const item = document.createElement('div');
+    item.className = 'bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-colors';
+
+    // 获取构建变体标签样式
+    const variantColor = getVariantColor(apk.build_variant);
+
+    item.innerHTML = `
+        <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-4">
+                <div class="text-3xl">📱</div>
+                <div>
+                    <h3 class="text-lg font-medium text-gray-900">${apk.file_name}</h3>
+                    <div class="flex items-center space-x-4 mt-1">
+                        <span class="text-sm text-gray-500">${formatFileSize(apk.file_size)}</span>
+                        <span class="px-2 py-1 text-xs rounded-full ${variantColor}">${apk.build_variant || 'unknown'}</span>
+                        <span class="text-sm text-gray-400">${formatTimestamp(apk.modified_time)}</span>
+                    </div>
+                    ${apk.package_info ? `
+                        <div class="text-xs text-gray-600 mt-1">
+                            包名: ${apk.package_info.package_name || '未知'} |
+                            版本: ${apk.package_info.version_name || apk.package_info.version_code || '未知'}
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+            <div class="flex items-center space-x-2">
+                <button onclick="showApkDetails('${apk.file_path}')" class="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors" title="查看详情">
+                    📋 详情
+                </button>
+                <button onclick="addToCompare('${apk.file_path}')" class="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 transition-colors" title="添加到比较">
+                    ⚖️ 比较
+                </button>
+                <button onclick="downloadApk('${apk.file_path}')" class="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors" title="下载APK">
+                    ⬇️ 下载
+                </button>
+            </div>
+        </div>
+    `;
+
+    return item;
+}
+
+/**
+ * 获取构建变体标签颜色
+ */
+function getVariantColor(variant) {
+    if (!variant) return 'bg-gray-100 text-gray-800';
+
+    const variantLower = variant.toLowerCase();
+    if (variantLower.includes('debug')) return 'bg-orange-100 text-orange-800';
+    if (variantLower.includes('release')) return 'bg-green-100 text-green-800';
+    if (variantLower.includes('staging')) return 'bg-blue-100 text-blue-800';
+    if (variantLower.includes('prod')) return 'bg-purple-100 text-purple-800';
+
+    return 'bg-gray-100 text-gray-800';
+}
+
+/**
+ * 筛选和排序APK列表
+ */
+function filterAndSortApks() {
+    let filtered = [...apkState.apkList];
+
+    // 应用构建变体筛选
+    const variantFilter = apkElements.apkVariantFilter.value;
+    if (variantFilter) {
+        filtered = filtered.filter(apk => apk.build_variant === variantFilter);
+    }
+
+    // 应用排序
+    const sortBy = apkElements.apkSortBy.value;
+    filtered.sort((a, b) => {
+        switch (sortBy) {
+            case 'file_size':
+                return b.file_size - a.file_size;
+            case 'file_name':
+                return a.file_name.localeCompare(b.file_name);
+            case 'build_variant':
+                return (a.build_variant || '').localeCompare(b.build_variant || '');
+            case 'modified_time':
+            default:
+                return b.modified_time - a.modified_time;
+        }
+    });
+
+    return filtered;
+}
+
+/**
+ * 显示APK详情
+ */
+async function showApkDetails(apkFilePath) {
+    try {
+        showToast('正在加载APK详情...', 'info');
+
+        const response = await fetch(`${API_BASE}/api/apks/files/${encodeURIComponent(apkFilePath)}/info`);
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || '获取APK详情失败');
+        }
+
+        const apkInfo = await response.json();
+
+        // 显示详情模态框
+        displayApkDetails(apkInfo);
+        apkElements.modalApkDetails.classList.remove('hidden');
+
+    } catch (error) {
+        console.error('获取APK详情失败:', error);
+        showToast(error.message, 'error');
+    }
+}
+
+/**
+ * 显示APK详情内容
+ */
+function displayApkDetails(apkInfo) {
+    const content = apkElements.apkDetailsContent;
+
+    content.innerHTML = `
+        <!-- 基本信息 -->
+        <div class="bg-gray-50 rounded-lg p-4">
+            <h4 class="text-lg font-semibold text-gray-900 mb-3">基本信息</h4>
+            <div class="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                    <span class="text-gray-600">文件名:</span>
+                    <span class="text-gray-900 ml-2">${apkInfo.file_name}</span>
+                </div>
+                <div>
+                    <span class="text-gray-600">文件大小:</span>
+                    <span class="text-gray-900 ml-2">${formatFileSize(apkInfo.file_size)}</span>
+                </div>
+                <div>
+                    <span class="text-gray-600">构建变体:</span>
+                    <span class="text-gray-900 ml-2">${apkInfo.build_variant || '未知'}</span>
+                </div>
+                <div>
+                    <span class="text-gray-600">文件哈希:</span>
+                    <span class="text-gray-900 ml-2 font-mono text-xs">${apkInfo.file_hash.substring(0, 16)}...</span>
+                </div>
+                <div>
+                    <span class="text-gray-600">修改时间:</span>
+                    <span class="text-gray-900 ml-2">${formatTimestamp(apkInfo.modified_time)}</span>
+                </div>
+                <div>
+                    <span class="text-gray-600">创建时间:</span>
+                    <span class="text-gray-900 ml-2">${formatTimestamp(apkInfo.created_time)}</span>
+                </div>
+            </div>
+        </div>
+
+        ${apkInfo.package_info ? `
+            <!-- 包信息 -->
+            <div class="bg-blue-50 rounded-lg p-4">
+                <h4 class="text-lg font-semibold text-gray-900 mb-3">包信息</h4>
+                <div class="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                        <span class="text-gray-600">包名:</span>
+                        <span class="text-gray-900 ml-2 font-mono">${apkInfo.package_info.package_name || '未知'}</span>
+                    </div>
+                    <div>
+                        <span class="text-gray-600">版本号:</span>
+                        <span class="text-gray-900 ml-2">${apkInfo.package_info.version_code || '未知'}</span>
+                    </div>
+                    <div>
+                        <span class="text-gray-600">版本名:</span>
+                        <span class="text-gray-900 ml-2">${apkInfo.package_info.version_name || '未知'}</span>
+                    </div>
+                    <div>
+                        <span class="text-gray-600">目标SDK:</span>
+                        <span class="text-gray-900 ml-2">${apkInfo.package_info.target_sdk || '未知'}</span>
+                    </div>
+                </div>
+            </div>
+        ` : ''}
+
+        ${apkInfo.permissions && apkInfo.permissions.length > 0 ? `
+            <!-- 权限信息 -->
+            <div class="bg-yellow-50 rounded-lg p-4">
+                <h4 class="text-lg font-semibold text-gray-900 mb-3">权限 (${apkInfo.permissions.length})</h4>
+                <div class="max-h-40 overflow-y-auto">
+                    <div class="grid grid-cols-2 gap-2 text-sm">
+                        ${apkInfo.permissions.map(permission => `
+                            <div class="text-gray-700 font-mono text-xs truncate" title="${permission}">
+                                ${permission}
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            </div>
+        ` : ''}
+
+        ${apkInfo.activities && apkInfo.activities.length > 0 ? `
+            <!-- 组件信息 -->
+            <div class="bg-purple-50 rounded-lg p-4">
+                <h4 class="text-lg font-semibold text-gray-900 mb-3">组件信息</h4>
+                <div class="grid grid-cols-3 gap-4 text-sm">
+                    <div>
+                        <span class="text-gray-600">Activity:</span>
+                        <span class="text-gray-900 ml-2">${apkInfo.activities.length}</span>
+                    </div>
+                    <div>
+                        <span class="text-gray-600">Service:</span>
+                        <span class="text-gray-900 ml-2">${apkInfo.services.length}</span>
+                    </div>
+                    <div>
+                        <span class="text-gray-600">Receiver:</span>
+                        <span class="text-gray-900 ml-2">${(apkInfo.package_info?.receivers || []).length}</span>
+                    </div>
+                </div>
+            </div>
+        ` : ''}
+
+        ${apkInfo.native_libs && apkInfo.native_libs.length > 0 ? `
+            <!-- 原生库信息 -->
+            <div class="bg-green-50 rounded-lg p-4">
+                <h4 class="text-lg font-semibold text-gray-900 mb-3">原生库 (${apkInfo.native_libs.length})</h4>
+                <div class="space-y-2 text-sm max-h-40 overflow-y-auto">
+                    ${apkInfo.native_libs.map(lib => `
+                        <div class="flex justify-between">
+                            <span class="text-gray-700">${lib.name}</span>
+                            <span class="text-gray-500">${lib.architecture} (${formatFileSize(lib.size)})</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        ` : ''}
+
+        ${apkInfo.analysis_error ? `
+            <!-- 分析错误 -->
+            <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                <h4 class="text-lg font-semibold text-red-900 mb-2">分析警告</h4>
+                <p class="text-sm text-red-700">${apkInfo.analysis_error}</p>
+            </div>
+        ` : ''}
+    `;
+}
+
+/**
+ * 添加APK到比较列表
+ */
+function addToCompare(apkFilePath) {
+    // 打开比较模态框
+    openCompareModal();
+
+    // 填充比较选项
+    updateCompareOptions();
+
+    // 自动选择该APK
+    if (!apkElements.compareApk1.value) {
+        apkElements.compareApk1.value = apkFilePath;
+    } else if (!apkElements.compareApk2.value && apkElements.compareApk1.value !== apkFilePath) {
+        apkElements.compareApk2.value = apkFilePath;
+    }
+
+    updateCompareButton();
+}
+
+/**
+ * 打开比较模态框
+ */
+function openCompareModal() {
+    apkElements.modalApkCompare.classList.remove('hidden');
+    updateCompareOptions();
+}
+
+/**
+ * 更新比较选项
+ */
+function updateCompareOptions() {
+    const apk1 = apkElements.compareApk1;
+    const apk2 = apkElements.compareApk2;
+
+    // 保存当前选择
+    const currentValue1 = apk1.value;
+    const currentValue2 = apk2.value;
+
+    // 清空并重新填充
+    apk1.innerHTML = '<option value="">选择APK文件</option>';
+    apk2.innerHTML = '<option value="">选择APK文件</option>';
+
+    apkState.apkList.forEach(apk => {
+        const option1 = document.createElement('option');
+        option1.value = apk.file_path;
+        option1.textContent = `${apk.file_name} (${apk.build_variant})`;
+        if (apk.file_path === currentValue1) option1.selected = true;
+        apk1.appendChild(option1);
+
+        const option2 = document.createElement('option');
+        option2.value = apk.file_path;
+        option2.textContent = `${apk.file_name} (${apk.build_variant})`;
+        if (apk.file_path === currentValue2) option2.selected = true;
+        apk2.appendChild(option2);
+    });
+}
+
+/**
+ * 更新比较按钮状态
+ */
+function updateCompareButton() {
+    const apk1 = apkElements.compareApk1.value;
+    const apk2 = apkElements.compareApk2.value;
+
+    apkElements.btnStartCompare.disabled = !apk1 || !apk2 || apk1 === apk2;
+}
+
+/**
+ * 开始APK比较
+ */
+async function startApkCompare() {
+    const apk1 = apkElements.compareApk1.value;
+    const apk2 = apkElements.compareApk2.value;
+
+    if (!apk1 || !apk2 || apk1 === apk2) {
+        showToast('请选择两个不同的APK文件进行比较', 'warning');
+        return;
+    }
+
+    try {
+        apkElements.btnStartCompare.disabled = true;
+        apkElements.btnStartCompare.textContent = '🔄 比较中...';
+
+        const response = await fetch(`${API_BASE}/api/apks/compare`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                apk_file1: apk1,
+                apk_file2: apk2
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'APK比较失败');
+        }
+
+        const comparison = await response.json();
+        displayComparisonResult(comparison);
+
+    } catch (error) {
+        console.error('APK比较失败:', error);
+        showToast(error.message, 'error');
+    } finally {
+        apkElements.btnStartCompare.disabled = false;
+        apkElements.btnStartCompare.textContent = '🔍 开始比较';
+    }
+}
+
+/**
+ * 显示比较结果
+ */
+function displayComparisonResult(comparison) {
+    const resultDiv = apkElements.apkCompareResult;
+
+    const isSame = comparison.differences.hash_same;
+
+    resultDiv.innerHTML = `
+        <!-- 文件信息比较 -->
+        <div class="bg-gray-50 rounded-lg p-4">
+            <h4 class="text-lg font-semibold text-gray-900 mb-3">文件信息比较</h4>
+            <div class="grid grid-cols-2 gap-6 text-sm">
+                <div>
+                    <h5 class="font-medium text-gray-700 mb-2">文件1</h5>
+                    <div class="space-y-1">
+                        <div><span class="text-gray-600">名称:</span> ${comparison.file1.name}</div>
+                        <div><span class="text-gray-600">大小:</span> ${formatFileSize(comparison.file1.size)}</div>
+                        <div><span class="text-gray-600">哈希:</span> <span class="font-mono text-xs">${comparison.file1.hash.substring(0, 16)}...</span></div>
+                    </div>
+                </div>
+                <div>
+                    <h5 class="font-medium text-gray-700 mb-2">文件2</h5>
+                    <div class="space-y-1">
+                        <div><span class="text-gray-600">名称:</span> ${comparison.file2.name}</div>
+                        <div><span class="text-gray-600">大小:</span> ${formatFileSize(comparison.file2.size)}</div>
+                        <div><span class="text-gray-600">哈希:</span> <span class="font-mono text-xs">${comparison.file2.hash.substring(0, 16)}...</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 差异总结 -->
+        <div class="${isSame ? 'bg-green-50' : 'bg-yellow-50'} rounded-lg p-4">
+            <h4 class="text-lg font-semibold text-gray-900 mb-3">差异总结</h4>
+            <div class="text-sm space-y-2">
+                <div>
+                    <span class="text-gray-600">文件是否相同:</span>
+                    <span class="${isSame ? 'text-green-700' : 'text-yellow-700'} font-medium ml-2">
+                        ${isSame ? '✅ 完全相同' : '❌ 存在差异'}
+                    </span>
+                </div>
+                <div>
+                    <span class="text-gray-600">大小差异:</span>
+                    <span class="text-gray-900 ml-2">${formatFileSize(Math.abs(comparison.differences.size_diff))}</span>
+                    ${comparison.differences.size_diff !== 0 ?
+                        (comparison.differences.size_diff > 0 ? ' (文件2更大)' : ' (文件1更大)') : ''}
+                </div>
+                <div>
+                    <span class="text-gray-600">构建变体:</span>
+                    <span class="text-gray-900 ml-2">
+                        ${comparison.differences.build_variant_diff ? '不同' : '相同'}
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        ${comparison.package_differences ? `
+            <!-- 包信息差异 -->
+            <div class="bg-blue-50 rounded-lg p-4">
+                <h4 class="text-lg font-semibold text-gray-900 mb-3">包信息差异</h4>
+                <div class="text-sm space-y-2">
+                    <div>
+                        <span class="text-gray-600">版本号:</span>
+                        <span class="text-gray-900 ml-2">
+                            ${comparison.package_differences.version_code_diff ? '不同' : '相同'}
+                        </span>
+                    </div>
+                    <div>
+                        <span class="text-gray-600">版本名:</span>
+                        <span class="text-gray-900 ml-2">
+                            ${comparison.package_differences.version_name_diff ? '不同' : '相同'}
+                        </span>
+                    </div>
+                    <div>
+                        <span class="text-gray-600">包名:</span>
+                        <span class="text-gray-900 ml-2">
+                            ${comparison.package_differences.package_name_diff ? '不同' : '相同'}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        ` : ''}
+
+        ${!isSame && comparison.permission_differences ? `
+            <!-- 权限差异 -->
+            <div class="bg-purple-50 rounded-lg p-4">
+                <h4 class="text-lg font-semibold text-gray-900 mb-3">权限差异</h4>
+                <div class="text-sm space-y-2">
+                    ${comparison.permission_differences.added.length > 0 ? `
+                        <div>
+                            <span class="text-green-700 font-medium">新增权限 (${comparison.permission_differences.added.length}):</span>
+                            <div class="mt-1 space-y-1">
+                                ${comparison.permission_differences.added.map(permission => `
+                                    <div class="text-gray-700 font-mono text-xs">+ ${permission}</div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    ${comparison.permission_differences.removed.length > 0 ? `
+                        <div>
+                            <span class="text-red-700 font-medium">移除权限 (${comparison.permission_differences.removed.length}):</span>
+                            <div class="mt-1 space-y-1">
+                                ${comparison.permission_differences.removed.map(permission => `
+                                    <div class="text-gray-700 font-mono text-xs">- ${permission}</div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    ${comparison.permission_differences.common.length > 0 ? `
+                        <div>
+                            <span class="text-gray-700 font-medium">共同权限 (${comparison.permission_differences.common.length}):</span>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        ` : ''}
+    `;
+
+    resultDiv.classList.remove('hidden');
+}
+
+/**
+ * 下载APK文件
+ */
+function downloadApk(apkFilePath) {
+    // 创建下载链接
+    const link = document.createElement('a');
+    link.href = `/api/files/download?file_path=${encodeURIComponent(apkFilePath)}`;
+    link.download = apkFilePath.split(/[/\\]/).pop(); // 获取文件名
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    showToast('开始下载APK文件', 'success');
+}
+
+/**
+ * 更新步骤指示器
+ */
+function updateStepIndicator(stepNumber, status) {
+    const steps = document.querySelectorAll('nav[aria-label="Progress"] ol li');
+
+    if (stepNumber > 0 && stepNumber <= steps.length) {
+        const step = steps[stepNumber - 1];
+        const circle = step.querySelector('span.flex-shrink-0');
+        const text = step.querySelector('span.ml-4');
+
+        if (status === 'completed') {
+            circle.className = 'flex-shrink-0 w-10 h-10 flex items-center justify-center bg-green-600 rounded-full';
+            circle.innerHTML = '<span class="text-white">✓</span>';
+            text.className = 'ml-4 text-sm font-medium text-green-600';
+        } else if (status === 'active') {
+            circle.className = 'flex-shrink-0 w-10 h-10 flex items-center justify-center bg-blue-600 rounded-full';
+            circle.innerHTML = `<span class="text-white">${stepNumber}</span>`;
+            text.className = 'ml-4 text-sm font-medium text-blue-600';
+        }
+    }
+}
+
+/**
+ * 初始化APK相关事件监听器
+ */
+function initApkEventListeners() {
+    // 扫描APK按钮
+    apkElements.btnScanApks.addEventListener('click', scanApkFiles);
+
+    // APK设置按钮
+    apkElements.btnApkSettings.addEventListener('click', () => {
+        showToast('APK设置功能开发中...', 'info');
+    });
+
+    // 刷新APK按钮
+    apkElements.btnRefreshApks.addEventListener('click', scanApkFiles);
+
+    // 构建变体筛选
+    apkElements.apkVariantFilter.addEventListener('change', displayApkList);
+
+    // 排序选择
+    apkElements.apkSortBy.addEventListener('change', displayApkList);
+
+    // APK详情模态框关闭
+    apkElements.btnCloseApkModal.addEventListener('click', () => {
+        apkElements.modalApkDetails.classList.add('hidden');
+    });
+
+    // APK比较模态框关闭
+    apkElements.btnCloseCompareModal.addEventListener('click', () => {
+        apkElements.modalApkCompare.classList.add('hidden');
+    });
+
+    // APK比较选择变化
+    apkElements.compareApk1.addEventListener('change', updateCompareButton);
+    apkElements.compareApk2.addEventListener('change', updateCompareButton);
+
+    // 开始比较按钮
+    apkElements.btnStartCompare.addEventListener('click', startApkCompare);
+}
+
+// 在现有的initEventListeners函数中添加APK事件监听器
+const originalInitEventListeners = initEventListeners;
+initEventListeners = function() {
+    originalInitEventListeners();
+    initApkEventListeners();
+};

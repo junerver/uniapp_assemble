@@ -126,11 +126,15 @@ class FileService:
         allowed_mime_types = {
             'application/zip',
             'application/x-rar-compressed',
+            'application/x-compressed',  # Windows对RAR文件的MIME类型识别
             'application/x-7z-compressed',
             'application/x-tar',
             'application/gzip',
             'application/octet-stream',  # 允许通用二进制类型
-            'application/x-zip-compressed'  # Windows常见的ZIP MIME类型
+            'application/x-zip-compressed',  # Windows常见的ZIP MIME类型
+            'application/x-rar',  # 某些系统对RAR文件的MIME类型识别
+            'application/x-msdownload',  # Windows对某些压缩文件的识别
+            'application/x-msdos-program'  # 另一个Windows常见的MIME类型
         }
         if content_type not in allowed_mime_types:
             raise ValueError(f"不支持的MIME类型: {content_type}")
@@ -141,9 +145,13 @@ class FileService:
         archive_mime_types = {
             'application/zip',
             'application/x-rar-compressed',
+            'application/x-compressed',  # Windows对RAR文件的MIME类型识别
             'application/x-7z-compressed',
             'application/x-tar',
-            'application/gzip'
+            'application/gzip',
+            'application/x-rar',  # 某些系统对RAR文件的MIME类型识别
+            'application/x-msdownload',  # Windows对某些压缩文件的识别
+            'application/x-msdos-program'  # 另一个Windows常见的MIME类型
         }
 
         file_extension = Path(filename).suffix.lower()

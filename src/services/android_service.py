@@ -15,7 +15,7 @@ from sqlalchemy import select, update, delete
 from ..models.android_project import AndroidProject
 from ..models.project_config import ProjectConfig, ConfigType
 from ..database.repositories import BaseAsyncRepository
-from ..utils.exceptions import ProjectNotFoundError, ProjectAlreadyExistsError, InvalidProjectPathError
+from ..utils.exceptions import ProjectNotFoundError, ProjectAlreadyExistsError, InvalidProjectPathError, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -312,3 +312,209 @@ class AndroidProjectService:
         self.session.add(git_config)
         await self.session.commit()
         logger.info(f"Git配置创建成功: {project_id}")
+
+    async def get_project_build_info(self, project_id: str) -> Dict[str, Any]:
+        """获取项目构建信息。
+
+        Args:
+            project_id: 项目ID
+
+        Returns:
+            构建信息字典
+        """
+        project = await self.get_project(project_id)
+        project_path = Path(project.path)
+
+        # 获取Git信息
+        from ..utils.git_utils import GitUtils
+        git_info = {}
+        try:
+            if GitUtils.is_git_repository(project_path):
+                git_info = GitUtils.get_repository_info(project_path)
+        except Exception as e:
+            logger.warning(f"获取Git信息失败: {e}")
+
+        # 获取Gradle信息
+        from ..utils.gradle_utils import GradleUtils
+        gradle_info = {}
+        try:
+            gradle_utils = GradleUtils(project_path)
+            if gradle_utils.is_gradle_project():
+                gradle_info = {
+                    "is_gradle_project": True,
+                    "gradle_version": gradle_utils.get_gradle_version(),
+                    "available_tasks": gradle_utils.get_available_tasks(),
+                    "build_variants": gradle_utils.get_build_variants(),
+                    "build_flavors": gradle_utils.get_build_flavors(),
+                    "project_info": gradle_utils.get_project_info()
+                }
+        except Exception as e:
+            logger.warning(f"获取Gradle信息失败: {e}")
+
+        return {
+            "project": project.to_dict(),
+            "git_info": git_info,
+            "gradle_info": gradle_info,
+            "build_environment_valid": bool(git_info and gradle_info.get("is_gradle_project", False))
+        }
+
+    async def validate_build_environment(self, project_id: str) -> Dict[str, Any]:
+        """验证项目构建环境。
+
+        Args:
+            project_id: 项目ID
+
+        Returns:
+            验证结果字典
+        """
+        project = await self.get_project(project_id)
+        project_path = Path(project.path)
+
+        validation_result = {
+            "valid": True,
+            "issues": [],
+            "warnings": [],
+            "recommendations": [],
+            "checks": {}
+        }
+
+        # 检查项目路径
+        if not project_path.exists():
+            validation_result["valid"] = False
+            validation_result["issues"].append("项目路径不存在")
+            return validation_result
+
+        validation_result["checks"]["project_exists"] = True
+
+        # 检查Gradle环境
+        from ..utils.gradle_utils import GradleUtils
+        try:
+            gradle_utils = GradleUtils(project_path)
+            gradle_validation = gradle_utils.validate_build_environment()
+            validation_result["checks"]["gradle_environment"] = gradle_validation
+
+            if not gradle_validation["valid"]:
+                validation_result["valid"] = False
+                validation_result["issues"].extend(gradle_validation["issues"])
+
+            validation_result["warnings"].extend(gradle_validation["warnings"])
+
+        except Exception as e:
+            validation_result["valid"] = False
+            validation_result["issues"].append(f"Gradle环境检查失败: {e}")
+
+        # 检查Git环境
+        from ..utils.git_utils import GitUtils
+        try:
+            if GitUtils.is_git_repository(project_path):
+                validation_result["checks"]["git_environment"] = {"valid": True}
+            else:
+                validation_result["warnings"].append("项目不是Git仓库")
+                validation_result["recommendations"].append("初始化Git仓库以便版本控制")
+        except Exception as e:
+            validation_result["warnings"].append(f"Git环境检查失败: {e}")
+
+        # 检查关键文件
+        critical_files = [
+            "app/build.gradle",
+            "gradle.properties",
+            "settings.gradle"
+        ]
+
+        missing_files = []
+        for file_path in critical_files:
+            full_path = project_path / file_path
+            if not full_path.exists():
+                missing_files.append(file_path)
+
+        if missing_files:
+            validation_result["checks"]["critical_files"] = {
+                "present": len(critical_files) - len(missing_files),
+                "missing": missing_files
+            }
+            validation_result["warnings"].append(f"缺少关键文件: {', '.join(missing_files)}")
+        else:
+            validation_result["checks"]["critical_files"] = {"present": len(critical_files), "missing": []}
+
+        return validation_result
+
+    async def get_project_branches(self, project_id: str) -> Dict[str, Any]:
+        """获取项目的Git分支信息。
+
+        Args:
+            project_id: 项目ID
+
+        Returns:
+            分支信息字典
+        """
+        project = await self.get_project(project_id)
+        project_path = Path(project.path)
+
+        from ..utils.git_utils import GitUtils
+        try:
+            if not GitUtils.is_git_repository(project_path):
+                return {
+                    "is_git_repository": False,
+                    "error": "项目不是Git仓库"
+                }
+
+            branches = GitUtils.get_all_branches(project_path)
+            current_branch = GitUtils.get_current_branch(project_path)
+
+            return {
+                "is_git_repository": True,
+                "current_branch": current_branch,
+                "all_branches": branches,
+                "local_branches": [b for b in branches if not b.startswith("origin/")],
+                "remote_branches": [b for b in branches if b.startswith("origin/")]
+            }
+
+        except Exception as e:
+            logger.error(f"获取分支信息失败: {e}")
+            return {
+                "is_git_repository": False,
+                "error": f"获取分支信息失败: {str(e)}"
+            }
+
+    async def create_build_task_for_project(
+        self,
+        project_id: str,
+        task_type: str,
+        git_branch: str,
+        resource_package_path: Optional[str] = None,
+        config_options: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """为项目创建构建任务。
+
+        Args:
+            project_id: 项目ID
+            task_type: 任务类型
+            git_branch: Git分支
+            resource_package_path: 资源包路径
+            config_options: 配置选项
+
+        Returns:
+            创建结果
+        """
+        try:
+            # 验证项目
+            await self.get_project(project_id)
+
+            # 验证构建环境
+            validation = await self.validate_build_environment(project_id)
+            if not validation["valid"]:
+                raise ValidationError(f"构建环境验证失败: {'; '.join(validation['issues'])}")
+
+            # 这里会调用BuildService来创建任务
+            # 实际的任务创建会在API层处理
+            return {
+                "project_id": project_id,
+                "task_type": task_type,
+                "git_branch": git_branch,
+                "validation": validation,
+                "ready_for_build": True
+            }
+
+        except Exception as e:
+            logger.error(f"为项目创建构建任务失败: {e}")
+            raise

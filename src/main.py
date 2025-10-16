@@ -101,11 +101,12 @@ async def add_security_headers(request: Request, call_next):
 
 
 # Include API routers
-from .api import projects, files
+from .api import projects, files, builds, apks
 app.include_router(projects.router)
 app.include_router(files.router)
+app.include_router(builds.router)
+app.include_router(apks.router)
 # TODO: Add other routers as they are implemented
-# app.include_router(builds.router, prefix="/api/builds", tags=["Builds"])
 # app.include_router(git.router, prefix="/api/git", tags=["Git"])
 # app.include_router(health.router, prefix="/api/health", tags=["Health"])
 
@@ -182,11 +183,11 @@ async def app_info():
         "description": app.description,
         "debug": settings.debug,
         "features": {
-            "project_management": "🚧 开发中",
-            "file_upload": "🚧 开发中",
-            "gradle_build": "🚧 开发中",
-            "apk_extraction": "📋 规划中",
-            "git_operations": "📋 规划中",
+            "project_management": "✅ 已实现",
+            "file_upload": "✅ 已实现",
+            "gradle_build": "✅ 已实现",
+            "apk_extraction": "✅ 已实现",
+            "git_operations": "🚧 开发中",
         }
     }
 
