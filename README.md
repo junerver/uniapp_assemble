@@ -9,6 +9,36 @@
 - **Python**: 3.13+
 - **操作系统**: Windows 10/11, macOS 10.15+, Linux
 - **包管理器**: UV (推荐) 或 pip
+- **解压工具**: 支持多种压缩格式需要安装:
+  - **7-Zip**: 用于解压 .7z 和 .rar 文件 (推荐)
+  - **WinRAR**: 或使用 WinRAR 解压 .rar 文件
+
+#### 安装解压工具 (可选 - 用于 RAR/7Z 格式支持)
+
+**Windows**:
+```bash
+# 使用 Chocolatey 安装 7-Zip
+choco install 7zip
+
+# 或从官网下载安装: https://www.7-zip.org/
+```
+
+**macOS**:
+```bash
+# 使用 Homebrew 安装 7-Zip
+brew install p7zip
+```
+
+**Linux**:
+```bash
+# Ubuntu/Debian
+sudo apt-get install p7zip-full unrar
+
+# CentOS/RHEL
+sudo yum install p7zip p7zip-plugins unrar
+```
+
+> **注意**: 如果不安装这些工具,系统仍然支持 ZIP 格式的资源包,但无法处理 RAR 和 7Z 格式。
 
 ### 使用UV包管理器（推荐）
 

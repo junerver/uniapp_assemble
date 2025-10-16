@@ -442,6 +442,23 @@ async function uploadFile(file) {
             return;
         }
 
+        // 验证文件类型 - 支持ZIP, RAR, 7Z格式
+        const fileName = file.name.toLowerCase();
+        const supportedFormats = ['.zip', '.rar', '.7z'];
+        const isSupported = supportedFormats.some(format => fileName.endsWith(format));
+
+        if (!isSupported) {
+            showToast('只支持ZIP、RAR、7Z格式的资源包文件！', 'error');
+            return;
+        }
+
+        // 验证文件大小 (最大500MB)
+        const maxSize = 500 * 1024 * 1024; // 500MB in bytes
+        if (file.size > maxSize) {
+            showToast(`文件大小超过限制！最大支持500MB，当前文件：${(file.size / 1024 / 1024).toFixed(2)}MB`, 'error');
+            return;
+        }
+
         // 显示上传进度
         elements.uploadProgress.classList.remove('hidden');
 

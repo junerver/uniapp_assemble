@@ -4,6 +4,7 @@ Build日志数据模型。
 用于存储构建过程中的详细日志信息。
 """
 
+import json
 import logging
 from datetime import datetime
 from typing import Optional, Dict, Any
@@ -55,6 +56,14 @@ class BuildLog(Base):
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典格式。"""
+        # 尝试解析log_metadata为JSON,如果失败则返回原始字符串
+        metadata = None
+        if self.log_metadata:
+            try:
+                metadata = json.loads(self.log_metadata)
+            except (json.JSONDecodeError, TypeError):
+                metadata = self.log_metadata
+
         return {
             "id": str(self.id),
             "build_task_id": str(self.build_task_id),
@@ -63,7 +72,7 @@ class BuildLog(Base):
             "message": self.message,
             "source": self.source,
             "line_number": self.line_number,
-            "metadata": self.log_metadata,
+            "metadata": metadata,
             "created_at": self.created_at.isoformat() if self.created_at else None
         }
 
@@ -86,7 +95,7 @@ class BuildLog(Base):
             message=message,
             source=source,
             line_number=line_number,
-            log_metadata=str(metadata) if metadata else None
+            log_metadata=json.dumps(metadata, ensure_ascii=False) if metadata else None
         )
 
     @classmethod
@@ -222,12 +231,15 @@ class BuildLog(Base):
         message = f"{build_type}任务执行{status}"
         log_level = LogLevel.INFO if success else LogLevel.ERROR
 
+        metadata = {"build_type": build_type, "success": success, "event": "build_complete"}
+
         return cls(
             build_task_id=build_task_id,
             message=message,
             log_level=log_level.value,
             source="build_system",
-            log_metadata={"build_type": build_type, "success": success, "event": "build_complete"}
+            timestamp=datetime.utcnow(),
+            log_metadata=json.dumps(metadata, ensure_ascii=False)
         )
 
     @classmethod

@@ -1,14 +1,13 @@
 """
 资源替换服务。
 
-负责处理Android项目资源的替换操作，包括资源包解压、备份、替换和验证。
+负责处理Android项目资源的替换操作，包括资源包解压、替换和验证。
 """
 
 import asyncio
 import logging
 import os
 import shutil
-import time
 import zipfile
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
@@ -20,9 +19,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.android_project import AndroidProject
 from ..utils.exceptions import BuildError, ValidationError
-from ..utils.git_utils import GitUtils
 
 logger = logging.getLogger(__name__)
+
+# 支持的压缩格式
+SUPPORTED_ARCHIVE_FORMATS = ['.zip', '.rar', '.7z']
 
 
 class ResourceService:
@@ -64,10 +65,9 @@ class ResourceService:
         await self._validate_replacement_inputs(project_path, resource_package_path)
         logger.info("输入参数验证通过")
 
-        # 创建备份
-        logger.info("创建项目备份...")
-        backup_info = await self._create_project_backup(project_path, git_branch)
-        logger.info(f"备份完成: {backup_info['backup_type']} - {backup_info.get('backup_path', 'N/A')}")
+        # 注意：资源替换只会修改 app/src/main/assets/apps 目录
+        # 项目使用Git版本控制，可以随时回滚，不需要额外备份
+        logger.info("跳过项目备份（资源替换不影响项目核心代码，Git可追踪所有变更）")
 
         # 解压资源包
         logger.info("解压资源包...")
@@ -125,10 +125,10 @@ class ResourceService:
 
         result = {
             "success": True,
-            "backup_info": backup_info,
             "replacement_result": replacement_result,
             "validation_result": validation_result,
-            "git_branch": git_branch
+            "git_branch": git_branch,
+            "target_directory": "app/src/main/assets/apps"
         }
 
         logger.info(f"资源替换操作完成: {project_path}")
@@ -159,77 +159,84 @@ class ResourceService:
         if not resource_package_path.is_file():
             raise ValidationError(f"资源包不是文件: {resource_package_path}")
 
-        if resource_package_path.suffix.lower() != '.zip':
-            raise ValidationError(f"资源包必须是ZIP文件: {resource_package_path}")
+        # 验证资源包格式
+        file_suffix = resource_package_path.suffix.lower()
+        if file_suffix not in SUPPORTED_ARCHIVE_FORMATS:
+            raise ValidationError(
+                f"不支持的资源包格式: {file_suffix}。"
+                f"支持的格式: {', '.join(SUPPORTED_ARCHIVE_FORMATS)}"
+            )
 
-        # 验证ZIP文件完整性
-        try:
-            with zipfile.ZipFile(resource_package_path, 'r') as zip_file:
-                zip_file.testzip()
-        except zipfile.BadZipFile as e:
-            raise ValidationError(f"资源包ZIP文件损坏: {e}")
-
-    async def _create_project_backup(
-        self,
-        project_path: Path,
-        git_branch: str
-    ) -> Dict[str, Any]:
-        """创建项目备份。"""
-        try:
-            # 创建Git备份
-            backup_result = GitUtils.create_backup(project_path, f"before_resource_replacement_{git_branch}")
-            backup_path = backup_result.get("backup_path") if backup_result.get("success") else None
-
-            return {
-                "backup_path": backup_path,
-                "backup_type": "git",
-                "git_branch": git_branch,
-                "created_at": Path(backup_path).stat().st_mtime if backup_path else None
-            }
-
-        except Exception as e:
-            logger.warning(f"Git备份失败，尝试文件系统备份: {e}")
-
-            # 文件系统备份
-            backup_dir = project_path.parent / f"{project_path.name}_backup_{int(time.time())}"
+        # 验证ZIP文件完整性(仅对ZIP格式)
+        if file_suffix == '.zip':
             try:
-                shutil.copytree(project_path, backup_dir)
-                return {
-                    "backup_path": str(backup_dir),
-                    "backup_type": "filesystem",
-                    "created_at": backup_dir.stat().st_mtime
-                }
-            except Exception as backup_e:
-                raise BuildError(f"创建备份失败: {backup_e}")
+                with zipfile.ZipFile(resource_package_path, 'r') as zip_file:
+                    zip_file.testzip()
+            except zipfile.BadZipFile as e:
+                raise ValidationError(f"资源包ZIP文件损坏: {e}")
 
     async def _extract_resource_package(
         self,
         resource_package_path: Path,
         temp_path: Path
     ) -> Dict[str, Any]:
-        """解压资源包。"""
+        """解压资源包(支持ZIP、RAR、7Z格式)。"""
         extracted_files = []
         resource_structure = {}
+        file_suffix = resource_package_path.suffix.lower()
 
         try:
-            with zipfile.ZipFile(resource_package_path, 'r') as zip_file:
-                # 获取文件列表
-                file_list = zip_file.namelist()
+            # 对于ZIP格式,使用zipfile模块(更快)
+            if file_suffix == '.zip':
+                with zipfile.ZipFile(resource_package_path, 'r') as zip_file:
+                    # 获取文件列表
+                    file_list = zip_file.namelist()
+
+                    # 检查资源包结构
+                    resource_structure = await self._analyze_resource_structure(file_list)
+
+                    # 解压所有文件
+                    for file_info in zip_file.infolist():
+                        if not file_info.is_dir():
+                            # 解压文件
+                            extracted_path = zip_file.extract(file_info, temp_path)
+                            extracted_files.append({
+                                "source_path": file_info.filename,
+                                "extracted_path": extracted_path,
+                                "size": file_info.file_size,
+                                "modified_time": file_info.date_time
+                            })
+
+            # 对于RAR和7Z格式,使用patool库
+            else:
+                import patoolib
+
+                logger.info(f"使用patool解压{file_suffix}格式资源包: {resource_package_path}")
+
+                # 使用patool解压到临时目录
+                patoolib.extract_archive(
+                    str(resource_package_path),
+                    outdir=str(temp_path),
+                    verbosity=-1  # 静默模式
+                )
+
+                # 遍历解压后的文件
+                file_list = []
+                for root, dirs, files in os.walk(temp_path):
+                    for file in files:
+                        file_path = Path(root) / file
+                        relative_path = file_path.relative_to(temp_path)
+                        file_list.append(str(relative_path).replace('\\', '/'))
+
+                        extracted_files.append({
+                            "source_path": str(relative_path).replace('\\', '/'),
+                            "extracted_path": str(file_path),
+                            "size": file_path.stat().st_size,
+                            "modified_time": None  # patool不提供原始修改时间
+                        })
 
                 # 检查资源包结构
                 resource_structure = await self._analyze_resource_structure(file_list)
-
-                # 解压所有文件
-                for file_info in zip_file.infolist():
-                    if not file_info.is_dir():
-                        # 解压文件
-                        extracted_path = zip_file.extract(file_info, temp_path)
-                        extracted_files.append({
-                            "source_path": file_info.filename,
-                            "extracted_path": extracted_path,
-                            "size": file_info.file_size,
-                            "modified_time": file_info.date_time
-                        })
 
             logger.info(f"资源包解压完成，共 {len(extracted_files)} 个文件")
 
@@ -313,8 +320,16 @@ class ResourceService:
         error_files = []
 
         # 获取替换配置
-        replace_mode = config_options.get("replace_mode", "backup_existing")  # backup_existing, overwrite, skip
+        # 默认为overwrite模式,因为项目有Git追踪,不需要.backup文件
+        replace_mode = config_options.get("replace_mode", "overwrite")  # overwrite, skip
         target_patterns = config_options.get("target_patterns", [])  # 目标文件模式
+
+        # 目标目录：app/src/main/assets/apps
+        target_base_dir = project_path / "app" / "src" / "main" / "assets" / "apps"
+
+        # 确保目标目录存在
+        target_base_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"资源包将被放置到目标目录: {target_base_dir}")
 
         # 将字符串模式转换为正则表达式对象
         compiled_patterns = []
@@ -330,7 +345,8 @@ class ResourceService:
         for file_info in extracted_resources["extracted_files"]:
             source_path = Path(file_info["extracted_path"])
             relative_path = file_info["source_path"]
-            target_path = project_path / relative_path
+            # 修正：将文件放置到 app/src/main/assets/apps 目录下
+            target_path = target_base_dir / relative_path
 
             try:
                 # 检查是否需要替换
@@ -383,7 +399,12 @@ class ResourceService:
         target_path: Path,
         replace_mode: str
     ) -> bool:
-        """替换单个文件。"""
+        """
+        替换单个文件。
+
+        注意：项目使用Git版本控制,不需要创建.backup文件。
+        Git会自动追踪所有变更,可以通过Git回滚。
+        """
         try:
             # 创建目标目录
             target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -392,18 +413,10 @@ class ResourceService:
             if target_path.exists():
                 if replace_mode == "skip":
                     return False
+                # replace_mode为"overwrite"或其他值时,直接覆盖
+                # 不需要创建.backup文件,因为项目有Git追踪
 
-                elif replace_mode == "backup_existing":
-                    # 备份现有文件
-                    backup_path = target_path.with_suffix(f"{target_path.suffix}.backup")
-                    shutil.copy2(target_path, backup_path)
-
-                elif replace_mode != "overwrite":
-                    # 默认行为：备份现有文件
-                    backup_path = target_path.with_suffix(f"{target_path.suffix}.backup")
-                    shutil.copy2(target_path, backup_path)
-
-            # 复制新文件
+            # 直接复制新文件(覆盖旧文件)
             shutil.copy2(source_path, target_path)
             return True
 
@@ -553,7 +566,7 @@ class ResourceService:
         resource_package_path: str
     ) -> Dict[str, Any]:
         """
-        分析资源包内容（不执行替换）。
+        分析资源包内容（不执行替换，支持ZIP、RAR、7Z格式）。
 
         Args:
             resource_package_path: 资源包路径
@@ -566,21 +579,66 @@ class ResourceService:
         if not resource_package_path.exists():
             raise ValidationError(f"资源包不存在: {resource_package_path}")
 
+        file_suffix = resource_package_path.suffix.lower()
+        if file_suffix not in SUPPORTED_ARCHIVE_FORMATS:
+            raise ValidationError(
+                f"不支持的资源包格式: {file_suffix}。"
+                f"支持的格式: {', '.join(SUPPORTED_ARCHIVE_FORMATS)}"
+            )
+
         try:
-            with zipfile.ZipFile(resource_package_path, 'r') as zip_file:
-                file_list = zip_file.namelist()
-                structure = await self._analyze_resource_structure(file_list)
+            # 对于ZIP格式,使用zipfile模块
+            if file_suffix == '.zip':
+                with zipfile.ZipFile(resource_package_path, 'r') as zip_file:
+                    file_list = zip_file.namelist()
+                    structure = await self._analyze_resource_structure(file_list)
 
-                # 获取文件统计信息
-                total_size = sum(info.file_size for info in zip_file.infolist() if not info.is_dir())
-                file_count = len([f for f in file_list if not f.endswith('/')])
+                    # 获取文件统计信息
+                    total_size = sum(info.file_size for info in zip_file.infolist() if not info.is_dir())
+                    file_count = len([f for f in file_list if not f.endswith('/')])
 
-                return {
-                    "structure": structure,
-                    "total_size": total_size,
-                    "file_count": file_count,
-                    "package_path": str(resource_package_path)
-                }
+                    return {
+                        "structure": structure,
+                        "total_size": total_size,
+                        "file_count": file_count,
+                        "package_path": str(resource_package_path),
+                        "format": "ZIP"
+                    }
+
+            # 对于RAR和7Z格式,需要临时解压来分析
+            else:
+                import patoolib
+                import tempfile
+
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    temp_path = Path(temp_dir)
+
+                    # 解压到临时目录
+                    patoolib.extract_archive(
+                        str(resource_package_path),
+                        outdir=str(temp_path),
+                        verbosity=-1
+                    )
+
+                    # 遍历解压后的文件
+                    file_list = []
+                    total_size = 0
+                    for root, dirs, files in os.walk(temp_path):
+                        for file in files:
+                            file_path = Path(root) / file
+                            relative_path = file_path.relative_to(temp_path)
+                            file_list.append(str(relative_path).replace('\\', '/'))
+                            total_size += file_path.stat().st_size
+
+                    structure = await self._analyze_resource_structure(file_list)
+
+                    return {
+                        "structure": structure,
+                        "total_size": total_size,
+                        "file_count": len(file_list),
+                        "package_path": str(resource_package_path),
+                        "format": file_suffix.upper().replace('.', '')
+                    }
 
         except Exception as e:
             raise BuildError(f"分析资源包失败: {e}")
