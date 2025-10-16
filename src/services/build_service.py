@@ -40,6 +40,8 @@ class BuildService:
         config_options: Optional[Dict[str, Any]] = None
     ) -> BuildTask:
         """创建构建任务。"""
+        logger.info(f"[DEBUG] BuildService.create_build_task 接收: task_type={task_type}, type={type(task_type)}, value={task_type.value if isinstance(task_type, TaskType) else 'N/A'}")
+
         # 验证项目存在
         project = await self.session.get(AndroidProject, project_id)
         if not project:
@@ -54,6 +56,7 @@ class BuildService:
             raise ValidationError(f"分支不存在: {git_branch}")
 
         # 根据任务类型创建任务
+        logger.info(f"[DEBUG] 开始判断任务类型: task_type={task_type}, TaskType.BUILD={TaskType.BUILD}, 相等吗? {task_type == TaskType.BUILD}")
         if task_type == TaskType.RESOURCE_REPLACE:
             if not resource_package_path:
                 raise ValidationError("资源替换任务需要提供资源包路径")
@@ -98,6 +101,8 @@ class BuildService:
         if not task:
             raise ValidationError(f"构建任务不存在: {task_id}")
 
+        logger.info(f"[DEBUG] start_build_task: task.task_type={task.task_type}, TaskType.BUILD.value={TaskType.BUILD.value}, TaskType.RESOURCE_REPLACE.value={TaskType.RESOURCE_REPLACE.value}")
+
         if task.status != TaskStatus.PENDING.value:
             raise ValidationError(f"任务状态不是pending: {task.status}")
 
@@ -111,6 +116,7 @@ class BuildService:
         await self.session.commit()
 
         # 创建异步任务
+        logger.info(f"[DEBUG] 判断执行类型: task.task_type={task.task_type}, 类型={type(task.task_type)}")
         if task.task_type == TaskType.RESOURCE_REPLACE.value:
             asyncio_task = asyncio.create_task(
                 self._execute_resource_replace(task_id)
@@ -326,10 +332,20 @@ class BuildService:
                     del self._running_tasks[task_id]
 
     async def _execute_build(self, task_id: str) -> None:
-        """执行构建任务。"""
+        """
+        执行完整构建任务。
+
+        包含以下步骤:
+        1. Git安全检查
+        2. 资源替换 (如果提供了资源包)
+        3. Gradle构建
+        4. 产物收集
+        """
         # 为后台任务创建独立的数据库session
         from ..config.database import AsyncSessionLocal
         from ..utils.gradle_utils import GradleUtils
+        from .resource_service import ResourceService
+        from .git_service import GitService
 
         async with AsyncSessionLocal() as session:
             try:
@@ -341,38 +357,112 @@ class BuildService:
                 if not project:
                     raise BuildError("项目不存在")
 
-                # 更新进度
-                await self._update_task_progress(task_id, 10, "准备构建环境")
-
-                # 执行Gradle构建
-                await self._update_task_progress(task_id, 20, "开始Gradle构建")
+                # 创建服务实例
                 gradle_utils = GradleUtils(project.path)
+                git_service = GitService(session)
+
+                # 合并结果
+                final_result = {
+                    "success": False,
+                    "resource_replace_result": None,
+                    "build_result": None
+                }
+
+                # === 步骤1: Git安全检查 (5%) ===
+                await self._update_task_progress(task_id, 5, "执行Git安全检查")
+                await git_service.check_safety(project.path, task.git_branch)
+                await self._create_build_log(
+                    task_id,
+                    BuildLog.create_info_log(task_id, "Git安全检查通过", source="build_service")
+                )
+
+                # === 步骤2: 资源替换 (10% - 30%) ===
+                if task.resource_package_path:
+                    await self._update_task_progress(task_id, 10, "开始资源替换")
+
+                    resource_service = ResourceService(session)
+                    resource_result = await resource_service.replace_resources(
+                        project.path,
+                        task.resource_package_path,
+                        task.git_branch,
+                        task.config_options or {}
+                    )
+
+                    final_result["resource_replace_result"] = resource_result
+
+                    await self._update_task_progress(task_id, 30, "资源替换完成")
+                    await self._create_build_log(
+                        task_id,
+                        BuildLog.create_info_log(
+                            task_id,
+                            f"资源替换完成: {resource_result.get('replacement_result', {}).get('files_replaced', 0)} 个文件已替换",
+                            source="build_service"
+                        )
+                    )
+                else:
+                    await self._update_task_progress(task_id, 30, "跳过资源替换(未提供资源包)")
+
+                # === 步骤3: Gradle构建 (35% - 85%) ===
+                await self._update_task_progress(task_id, 35, "准备Gradle构建环境")
+
+                # 验证构建环境
+                validation = gradle_utils.validate_build_environment()
+                if not validation["valid"]:
+                    raise BuildError(f"构建环境验证失败: {', '.join(validation['issues'])}")
+
+                # 获取构建类型
+                build_type = task.config_options.get("build_type", "clean :app:assembleRelease") if task.config_options else "clean :app:assembleRelease"
+
+                await self._update_task_progress(task_id, 40, f"开始Gradle构建 ({build_type})")
+                await self._create_build_log(
+                    task_id,
+                    BuildLog.create_info_log(task_id, f"执行Gradle任务: {build_type}", source="gradle")
+                )
 
                 # 流式执行构建并记录日志
-                result = await self._execute_gradle_with_logging(
+                build_result = await self._execute_gradle_with_logging(
                     task_id,
                     gradle_utils,
                     task.config_options or {}
                 )
 
-                # 更新进度
-                await self._update_task_progress(task_id, 90, "验证构建结果")
+                final_result["build_result"] = build_result
 
-                # 完成任务
-                task.complete(result)
+                # === 步骤4: 验证构建结果 (85% - 95%) ===
+                await self._update_task_progress(task_id, 85, "验证构建结果")
+
+                if not build_result.get("success"):
+                    raise BuildError(f"Gradle构建失败: {build_result.get('error', '未知错误')}")
+
+                # 收集构建产物
+                artifacts = build_result.get("artifacts", [])
+                await self._create_build_log(
+                    task_id,
+                    BuildLog.create_info_log(
+                        task_id,
+                        f"构建成功! 生成 {len(artifacts)} 个产物, 耗时 {build_result.get('build_time', 0)} 秒",
+                        source="build_service"
+                    )
+                )
+
+                # === 完成任务 (100%) ===
+                await self._update_task_progress(task_id, 100, "构建任务完成")
+
+                final_result["success"] = True
+                task.complete(final_result)
                 session.add(task)
                 await session.commit()
 
                 await self._create_build_log(
                     task.id,
-                    BuildLog.create_build_complete_log(task.id, "Gradle构建", True)
+                    BuildLog.create_build_complete_log(task.id, "完整构建", True)
                 )
 
-                logger.info(f"构建任务完成: {task_id}")
+                logger.info(f"构建任务完成: {task_id}, 产物数量: {len(artifacts)}")
 
             except Exception as e:
                 error_msg = f"构建失败: {str(e)}"
-                logger.error(f"任务 {task_id} 失败: {error_msg}")
+                logger.error(f"任务 {task_id} 失败: {error_msg}", exc_info=True)
 
                 # 更新任务状态
                 task = await session.get(BuildTask, task_id)
@@ -474,37 +564,129 @@ class BuildService:
         start_time = datetime.utcnow()
 
         try:
+            # 获取构建类型,默认为clean :app:assembleRelease
+            build_type = config_options.get("build_type", "clean :app:assembleRelease")
+
             # 异步执行Gradle构建并捕获输出
-            process = await gradle_utils.execute_build_async("assembleDebug", config_options)
+            process = await gradle_utils.execute_build_async(build_type, config_options)
 
-            # 读取构建输出
-            while True:
-                line = await process.stdout.readline()
-                if not line:
-                    break
+            # 读取构建输出 - Windows和Linux兼容
+            import sys
+            if sys.platform == "win32":
+                # Windows: 同步Popen对象,在executor中实时读取
+                import asyncio
+                import threading
+                import queue
+                loop = asyncio.get_event_loop()
 
-                line = line.decode('utf-8').strip()
-                if line:
-                    result["output"] += line + "\n"
+                output_queue = queue.Queue()
 
-                    # 解析并记录日志
-                    logs = BuildLog.parse_gradle_output(task_id, line)
-                    for log in logs:
-                        await self._create_build_log(task_id, log)
+                # 定义读取stdout的线程函数
+                def read_stdout():
+                    try:
+                        for line in iter(process.stdout.readline, b''):
+                            try:
+                                decoded_line = line.decode('utf-8', errors='replace').strip()
+                                if decoded_line:
+                                    output_queue.put(('stdout', decoded_line))
+                            except Exception as e:
+                                logger.error(f"解码stdout失败: {e}")
+                    finally:
+                        output_queue.put(('stdout', None))  # 结束标记
 
-                    # 更新进度（基于常见Gradle输出模式）
-                    progress = self._parse_gradle_progress(line)
-                    if progress > 0:
-                        await self._update_task_progress(task_id, progress, f"构建中: {line}")
+                # 定义读取stderr的线程函数
+                def read_stderr():
+                    try:
+                        for line in iter(process.stderr.readline, b''):
+                            try:
+                                decoded_line = line.decode('utf-8', errors='replace').strip()
+                                if decoded_line:
+                                    output_queue.put(('stderr', decoded_line))
+                            except Exception as e:
+                                logger.error(f"解码stderr失败: {e}")
+                    finally:
+                        output_queue.put(('stderr', None))  # 结束标记
 
-            # 等待进程完成
-            await process.wait()
+                # 启动读取线程
+                stdout_thread = threading.Thread(target=read_stdout, daemon=True)
+                stderr_thread = threading.Thread(target=read_stderr, daemon=True)
+                stdout_thread.start()
+                stderr_thread.start()
+
+                # 实时处理输出
+                streams_ended = 0
+                while streams_ended < 2:
+                    try:
+                        # 非阻塞读取,每100ms检查一次
+                        stream_type, line = await loop.run_in_executor(
+                            None,
+                            lambda: output_queue.get(timeout=0.1)
+                        )
+
+                        if line is None:
+                            streams_ended += 1
+                            continue
+
+                        # 记录输出
+                        if stream_type == 'stdout':
+                            result["output"] += line + "\n"
+                        else:  # stderr
+                            result["error"] += line + "\n"
+                            # 避免日志编码错误 - 使用errors='replace'处理无法编码的字符
+                            try:
+                                logger.info(f"[GRADLE stderr] {line}")
+                            except UnicodeEncodeError:
+                                # 如果logger仍然失败，跳过控制台输出
+                                pass
+
+                        # 解析日志并存入数据库（这个会发送到SSE）
+                        logs = BuildLog.parse_gradle_output(task_id, line)
+                        for log in logs:
+                            await self._create_build_log(task_id, log)
+
+                        # 更新进度
+                        progress = self._parse_gradle_progress(line)
+                        if progress > 0:
+                            await self._update_task_progress(task_id, progress, f"构建中: {line[:100]}")
+
+                    except:
+                        # 超时,继续循环
+                        await asyncio.sleep(0.1)
+
+                # 等待进程完成
+                await loop.run_in_executor(None, process.wait)
+
+                # 等待线程结束
+                stdout_thread.join(timeout=1)
+                stderr_thread.join(timeout=1)
+            else:
+                # Unix/Linux: 异步subprocess
+                while True:
+                    line = await process.stdout.readline()
+                    if not line:
+                        break
+
+                    line = line.decode('utf-8').strip()
+                    if line:
+                        result["output"] += line + "\n"
+                        logs = BuildLog.parse_gradle_output(task_id, line)
+                        for log in logs:
+                            await self._create_build_log(task_id, log)
+                        progress = self._parse_gradle_progress(line)
+                        if progress > 0:
+                            await self._update_task_progress(task_id, progress, f"构建中: {line}")
+
+                await process.wait()
 
             if process.returncode == 0:
                 result["success"] = True
                 result["artifacts"] = gradle_utils.get_build_artifacts()
             else:
-                result["error"] = f"Gradle构建失败，退出码: {process.returncode}"
+                # 构建失败,组合错误信息
+                error_msg = f"Gradle构建失败，退出码: {process.returncode}"
+                if result["error"]:
+                    error_msg += f"\n错误输出:\n{result['error']}"
+                result["error"] = error_msg
 
         except Exception as e:
             result["error"] = str(e)

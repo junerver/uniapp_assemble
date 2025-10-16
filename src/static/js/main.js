@@ -1108,7 +1108,7 @@ function initEventListeners() {
 
             addBuildLog('构建环境验证通过', 'success');
 
-            // 2. 创建构建任务
+            // 2. 创建构建任务 (包含资源替换和Gradle构建)
             addBuildLog('创建构建任务...', 'info');
             const taskResponse = await fetch(`${API_BASE}/api/builds/tasks`, {
                 method: 'POST',
@@ -1117,14 +1117,22 @@ function initEventListeners() {
                 },
                 body: JSON.stringify({
                     project_id: state.currentProject.id,
-                    task_type: 'resource_replace', // 或根据需要选择
+                    task_type: 'build', // 完整构建流程: 资源替换 + Gradle构建
                     git_branch: state.currentBranch,
                     resource_package_path: state.uploadedFiles[0].file_path,
                     config_options: {
-                        replace_mode: 'backup_existing',
+                        // 资源替换配置
+                        replace_mode: 'overwrite',
+
+                        // Gradle构建配置
+                        build_type: 'clean :app:assembleRelease',
                         parallel: true,
                         daemon: true,
-                        stacktrace: false
+                        stacktrace: true,
+                        info: false,
+
+                        // 超时设置 (30分钟)
+                        timeout_minutes: 30
                     }
                 })
             });

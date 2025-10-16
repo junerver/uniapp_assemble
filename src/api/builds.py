@@ -128,6 +128,7 @@ async def create_build_task(
         HTTPException: 创建任务失败
     """
     try:
+        logger.info(f"[DEBUG] API接收到任务创建请求: task_type={request.task_type}, project_id={request.project_id}")
         task = await service.create_build_task(
             project_id=request.project_id,
             task_type=request.task_type,
@@ -135,7 +136,7 @@ async def create_build_task(
             resource_package_path=request.resource_package_path,
             config_options=request.config_options
         )
-        logger.info(f"创建构建任务成功: {task.id}")
+        logger.info(f"[DEBUG] 创建任务成功: task.id={task.id}, task.task_type={task.task_type}")
         return BuildTaskResponse.from_build_task(task)
 
     except ValidationError as e:

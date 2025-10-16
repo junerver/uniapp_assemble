@@ -30,7 +30,7 @@ class Base(DeclarativeBase):
 # Create async engine for SQLite
 engine = create_async_engine(
     settings.database_url,
-    echo=settings.debug,
+    echo=False,  # 关闭SQLAlchemy的SQL日志输出
     poolclass=StaticPool,
     connect_args={
         "check_same_thread": False,

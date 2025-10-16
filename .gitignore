@@ -128,8 +128,6 @@ example_*.py
 analyzer_*.py
 *_monitor.py
 monitor_*.py
-*_utils.py
-utils_*.py
 *_handler.py
 handler_*.py
 *_concepts.py
