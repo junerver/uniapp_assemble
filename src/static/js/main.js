@@ -1702,6 +1702,9 @@ function createApkItem(apk) {
     // 获取构建变体标签样式
     const variantColor = getVariantColor(apk.build_variant);
 
+    // 对文件路径进行Base64编码，避免HTML属性转义问题
+    const encodedPath = encodeBase64(apk.file_path);
+
     item.innerHTML = `
         <div class="flex items-center justify-between">
             <div class="flex items-center space-x-4">
@@ -1722,13 +1725,13 @@ function createApkItem(apk) {
                 </div>
             </div>
             <div class="flex items-center space-x-2">
-                <button data-filepath="${apk.file_path}" onclick="showApkDetails(this.dataset.filepath)" class="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors" title="查看详情">
+                <button data-encodedpath="${encodedPath}" onclick="showApkDetails(this.dataset.encodedpath)" class="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors" title="查看详情">
                     📋 详情
                 </button>
-                <button data-filepath="${apk.file_path}" onclick="addToCompare(this.dataset.filepath)" class="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 transition-colors" title="添加到比较">
+                <button data-encodedpath="${encodedPath}" onclick="addToCompare(this.dataset.encodedpath)" class="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 transition-colors" title="添加到比较">
                     ⚖️ 比较
                 </button>
-                <button data-filepath="${apk.file_path}" onclick="downloadApk(this.dataset.filepath)" class="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors" title="下载APK">
+                <button data-encodedpath="${encodedPath}" onclick="downloadApkEncoded(this.dataset.encodedpath)" class="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors" title="下载APK">
                     ⬇️ 下载
                 </button>
             </div>
@@ -1785,11 +1788,18 @@ function filterAndSortApks() {
 }
 
 /**
- * 显示APK详情
+ * 显示APK详情（接收Base64编码的路径）
  */
-async function showApkDetails(apkFilePath) {
+async function showApkDetails(encodedPath) {
     try {
         showToast('正在加载APK详情...', 'info');
+
+        // 解码Base64路径
+        const apkFilePath = decodeBase64(encodedPath);
+        if (!apkFilePath) {
+            showToast('文件路径解码失败', 'error');
+            return;
+        }
 
         const response = await fetch(`${API_BASE}/api/apks/files/${encodeURIComponent(apkFilePath)}/info`);
 
@@ -1936,9 +1946,16 @@ function displayApkDetails(apkInfo) {
 }
 
 /**
- * 添加APK到比较列表
+ * 添加APK到比较列表（接收Base64编码的路径）
  */
-function addToCompare(apkFilePath) {
+function addToCompare(encodedPath) {
+    // 解码Base64路径
+    const apkFilePath = decodeBase64(encodedPath);
+    if (!apkFilePath) {
+        showToast('文件路径解码失败', 'error');
+        return;
+    }
+
     // 打开比较模态框
     openCompareModal();
 
@@ -2185,7 +2202,46 @@ function encodeBase64(str) {
 }
 
 /**
- * 下载APK文件（使用Base64编码方案）
+ * 将Base64字符串解码为原始字符串
+ */
+function decodeBase64(encodedStr) {
+    try {
+        return decodeURIComponent(escape(atob(encodedStr)));
+    } catch (error) {
+        console.error('Base64解码失败:', error);
+        return null;
+    }
+}
+
+/**
+ * 下载APK文件（接收Base64编码的路径）
+ */
+function downloadApkEncoded(encodedPath) {
+    if (!encodedPath) {
+        showToast('无效的文件路径', 'error');
+        return;
+    }
+
+    // 解码路径以获取文件名
+    const decodedPath = decodeBase64(encodedPath);
+    if (!decodedPath) {
+        showToast('文件路径解码失败', 'error');
+        return;
+    }
+
+    // 创建下载链接
+    const link = document.createElement('a');
+    link.href = `/api/files/download-base64?encoded_path=${encodedPath}`;
+    link.download = decodedPath.split(/[/\\]/).pop(); // 获取文件名
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    showToast('开始下载APK文件', 'success');
+}
+
+/**
+ * 下载APK文件（使用Base64编码方案 - 兼容旧接口）
  */
 function downloadApk(apkFilePath) {
     // 清理路径中的控制字符
@@ -2198,15 +2254,8 @@ function downloadApk(apkFilePath) {
         return;
     }
 
-    // 创建下载链接
-    const link = document.createElement('a');
-    link.href = `/api/files/download-base64?encoded_path=${encodedPath}`;
-    link.download = cleanPath.split(/[/\\]/).pop(); // 获取文件名
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    showToast('开始下载APK文件', 'success');
+    // 调用新的编码版本函数
+    downloadApkEncoded(encodedPath);
 }
 
 /**
