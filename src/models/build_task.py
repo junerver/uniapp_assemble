@@ -69,7 +69,6 @@ class BuildTask(Base):
 
     # 关系
     project = relationship("AndroidProject", back_populates="build_tasks")
-    build_logs = relationship("BuildLog", back_populates="build_task", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<BuildTask(id={self.id}, type={self.task_type}, status={self.status})>"

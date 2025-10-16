@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
 from ..models.build_task import BuildTask, TaskType, TaskStatus
-from ..models.build_log import BuildLog, LogLevel
 from ..models.android_project import AndroidProject
 from ..utils.exceptions import BuildError, ValidationError
 from ..utils.git_utils import GitUtils
@@ -26,9 +25,13 @@ logger = logging.getLogger(__name__)
 class BuildService:
     """构建服务类。"""
 
+    # 类级别的日志队列，在所有实例间共享
+    _log_queues: Dict[str, asyncio.Queue] = {}
+    # 类级别的运行中任务，在所有实例间共享
+    _running_tasks: Dict[str, asyncio.Task] = {}
+
     def __init__(self, session: AsyncSession):
         self.session = session
-        self._running_tasks: Dict[str, asyncio.Task] = {}
         self._progress_callbacks: Dict[str, List[Callable]] = {}
 
     async def create_build_task(
@@ -86,11 +89,11 @@ class BuildService:
         await self.session.commit()
         await self.session.refresh(task)
 
-        # 创建开始日志
-        await self._create_build_log(
-            task.id,
-            BuildLog.create_build_start_log(task.id, task_type.value)
-        )
+        # 创建日志队列（类级别共享）
+        BuildService._log_queues[task.id] = asyncio.Queue()
+
+        # 发送开始日志到队列
+        await self._emit_log(task.id, "info", f"开始执行{task_type.value}任务")
 
         logger.info(f"创建构建任务: {task.id} ({task_type.value})")
         return task
@@ -107,7 +110,7 @@ class BuildService:
             raise ValidationError(f"任务状态不是pending: {task.status}")
 
         # 检查是否已有运行中的任务
-        if task_id in self._running_tasks:
+        if task_id in BuildService._running_tasks:
             raise ValidationError(f"任务已在运行中: {task_id}")
 
         # 启动任务
@@ -132,7 +135,7 @@ class BuildService:
         else:
             raise ValidationError(f"不支持的任务类型: {task.task_type}")
 
-        self._running_tasks[task_id] = asyncio_task
+        BuildService._running_tasks[task_id] = asyncio_task
 
         logger.info(f"开始执行构建任务: {task_id}")
         return True
@@ -147,24 +150,17 @@ class BuildService:
             raise ValidationError(f"任务已完成，无法取消: {task_id}")
 
         # 取消异步任务
-        if task_id in self._running_tasks:
-            self._running_tasks[task_id].cancel()
-            del self._running_tasks[task_id]
+        if task_id in BuildService._running_tasks:
+            BuildService._running_tasks[task_id].cancel()
+            del BuildService._running_tasks[task_id]
 
         # 更新任务状态
         task.cancel()
         self.session.add(task)
         await self.session.commit()
 
-        # 创建取消日志
-        await self._create_build_log(
-            task.id,
-            BuildLog.create_info_log(
-                task.id,
-                "任务已被用户取消",
-                source="build_service"
-            )
-        )
+        # 发送取消日志
+        await self._emit_log(task.id, "info", "任务已被用户取消")
 
         logger.info(f"取消构建任务: {task_id}")
         return True
@@ -178,84 +174,61 @@ class BuildService:
         return task.to_dict()
 
     async def get_task_logs(self, task_id: str, limit: int = 100) -> List[Dict[str, Any]]:
-        """获取任务日志。"""
-        result = await self.session.execute(
-            select(BuildLog)
-            .where(BuildLog.build_task_id == task_id)
-            .order_by(BuildLog.timestamp.desc())
-            .limit(limit)
-        )
-        logs = result.scalars().all()
-        return [log.to_dict() for log in logs]
+        """获取任务日志（已废弃，日志不再持久化）。"""
+        # 日志不再持久化到数据库，返回空列表
+        return []
 
     async def stream_task_logs(self, task_id: str) -> AsyncGenerator[Dict[str, Any], None]:
         """实时流式获取任务日志。"""
-        from ..config.database import AsyncSessionLocal
+        # 如果队列不存在，说明任务不存在或已被清理
+        if task_id not in BuildService._log_queues:
+            # 尝试创建队列（可能是服务重启后恢复）
+            BuildService._log_queues[task_id] = asyncio.Queue()
 
-        last_log_time = datetime.utcnow() - timedelta(seconds=1)
-        no_log_count = 0  # 连续无日志计数
-        max_no_log_cycles = 120  # 最大无日志循环次数 (约60秒)
+        queue = BuildService._log_queues[task_id]
+        heartbeat_interval = 10  # 10秒发送一次心跳
+        last_heartbeat = datetime.utcnow()
 
-        while True:
-            # 为SSE创建独立的数据库会话
-            try:
-                async with AsyncSessionLocal() as session:
-                    result = await session.execute(
-                        select(BuildLog)
-                        .where(BuildLog.build_task_id == task_id)
-                        .where(BuildLog.timestamp > last_log_time)
-                        .order_by(BuildLog.timestamp.asc())
-                        .limit(10)
-                    )
-                    logs = result.scalars().all()
+        try:
+            while True:
+                try:
+                    # 尝试从队列获取日志，超时1秒
+                    log = await asyncio.wait_for(queue.get(), timeout=1.0)
 
-                    if logs:
-                        # 有新日志，发送并重置计数
-                        for log in logs:
-                            yield log.to_dict()
-                            last_log_time = log.timestamp
-                        no_log_count = 0
-                    else:
-                        # 没有新日志，增加计数
-                        no_log_count += 1
+                    # 发送日志
+                    yield log
 
-                        # 检查任务是否完成
-                        task = await session.get(BuildTask, task_id)
-                        if task and task.is_completed:
-                            # 任务完成，发送完成信号并退出
-                            yield {
-                                "type": "task_completed",
-                                "task_id": task_id,
-                                "status": task.status,
-                                "final": True
-                            }
-                            break
+                    # 如果是完成或错误信号，结束流
+                    if log.get("type") in ["task_completed", "task_failed", "timeout"]:
+                        break
 
-                        # 如果长时间无日志且任务未完成，发送心跳
-                        if no_log_count % 10 == 0:  # 每5秒发送一次心跳
-                            yield {
-                                "type": "heartbeat",
-                                "task_id": task_id,
-                                "message": "任务执行中，等待新日志...",
-                                "no_log_cycles": no_log_count
-                            }
+                except asyncio.TimeoutError:
+                    # 超时，检查是否需要发送心跳
+                    now = datetime.utcnow()
+                    if (now - last_heartbeat).total_seconds() >= heartbeat_interval:
+                        yield {
+                            "type": "heartbeat",
+                            "task_id": task_id,
+                            "message": "任务执行中，等待新日志...",
+                            "timestamp": now.isoformat()
+                        }
+                        last_heartbeat = now
 
-                        # 如果超时，退出循环
-                        if no_log_count >= max_no_log_cycles:
-                            yield {
-                                "type": "timeout",
-                                "task_id": task_id,
-                                "message": "日志流超时，任务可能仍在执行中",
-                                "no_log_cycles": no_log_count
-                            }
-                            break
-
-            except Exception as e:
-                logger.error(f"SSE数据库查询失败: {e}")
-                yield {"error": f"SSE数据库查询失败: {str(e)}"}
-                break
-
-            await asyncio.sleep(0.5)  # 等待500ms
+                    # 检查任务是否已完成（避免遗漏完成信号）
+                    task = await self.session.get(BuildTask, task_id)
+                    if task and task.is_completed:
+                        yield {
+                            "type": "task_completed",
+                            "task_id": task_id,
+                            "status": task.status,
+                            "final": True
+                        }
+                        break
+        finally:
+            # 流结束后清理队列
+            if task_id in BuildService._log_queues:
+                # 不立即删除，给一点时间让其他消费者读取
+                pass
 
     async def _execute_resource_replace(self, task_id: str) -> None:
         """执行资源替换任务。"""
@@ -303,10 +276,8 @@ class BuildService:
                 session.add(task)
                 await session.commit()
 
-                await self._create_build_log(
-                    task.id,
-                    BuildLog.create_build_complete_log(task.id, "资源替换", True)
-                )
+                await self._emit_log(task.id, "success", "资源替换任务执行成功")
+                await self._emit_log(task.id, "info", "任务已完成！", type="task_completed", status="completed", final=True)
 
                 logger.info(f"资源替换任务完成: {task_id}")
 
@@ -321,15 +292,13 @@ class BuildService:
                     session.add(task)
                     await session.commit()
 
-                await self._create_build_log(
-                    task.id,
-                    BuildLog.create_error_log(task.id, error_msg, source="build_service")
-                )
+                await self._emit_log(task.id, "error", error_msg)
+                await self._emit_log(task.id, "error", "任务执行失败", type="task_failed", final=True)
 
             finally:
                 # 清理运行中的任务
-                if task_id in self._running_tasks:
-                    del self._running_tasks[task_id]
+                if task_id in BuildService._running_tasks:
+                    del BuildService._running_tasks[task_id]
 
     async def _execute_build(self, task_id: str) -> None:
         """
@@ -371,10 +340,7 @@ class BuildService:
                 # === 步骤1: Git安全检查 (5%) ===
                 await self._update_task_progress(task_id, 5, "执行Git安全检查")
                 await git_service.check_safety(project.path, task.git_branch)
-                await self._create_build_log(
-                    task_id,
-                    BuildLog.create_info_log(task_id, "Git安全检查通过", source="build_service")
-                )
+                await self._emit_log(task_id, "info", "Git安全检查通过")
 
                 # === 步骤2: 资源替换 (10% - 30%) ===
                 if task.resource_package_path:
@@ -391,14 +357,8 @@ class BuildService:
                     final_result["resource_replace_result"] = resource_result
 
                     await self._update_task_progress(task_id, 30, "资源替换完成")
-                    await self._create_build_log(
-                        task_id,
-                        BuildLog.create_info_log(
-                            task_id,
-                            f"资源替换完成: {resource_result.get('replacement_result', {}).get('files_replaced', 0)} 个文件已替换",
-                            source="build_service"
-                        )
-                    )
+                    files_count = resource_result.get('replacement_result', {}).get('files_replaced', 0)
+                    await self._emit_log(task_id, "info", f"资源替换完成: {files_count} 个文件已替换")
                 else:
                     await self._update_task_progress(task_id, 30, "跳过资源替换(未提供资源包)")
 
@@ -414,10 +374,7 @@ class BuildService:
                 build_type = task.config_options.get("build_type", "clean :app:assembleRelease") if task.config_options else "clean :app:assembleRelease"
 
                 await self._update_task_progress(task_id, 40, f"开始Gradle构建 ({build_type})")
-                await self._create_build_log(
-                    task_id,
-                    BuildLog.create_info_log(task_id, f"执行Gradle任务: {build_type}", source="gradle")
-                )
+                await self._emit_log(task_id, "info", f"执行Gradle任务: {build_type}")
 
                 # 流式执行构建并记录日志
                 build_result = await self._execute_gradle_with_logging(
@@ -436,13 +393,10 @@ class BuildService:
 
                 # 收集构建产物
                 artifacts = build_result.get("artifacts", [])
-                await self._create_build_log(
+                await self._emit_log(
                     task_id,
-                    BuildLog.create_info_log(
-                        task_id,
-                        f"构建成功! 生成 {len(artifacts)} 个产物, 耗时 {build_result.get('build_time', 0)} 秒",
-                        source="build_service"
-                    )
+                    "success",
+                    f"构建成功! 生成 {len(artifacts)} 个产物, 耗时 {build_result.get('build_time', 0)} 秒"
                 )
 
                 # === 完成任务 (100%) ===
@@ -453,10 +407,7 @@ class BuildService:
                 session.add(task)
                 await session.commit()
 
-                await self._create_build_log(
-                    task.id,
-                    BuildLog.create_build_complete_log(task.id, "完整构建", True)
-                )
+                await self._emit_log(task.id, "info", "任务已完成！", type="task_completed", status="completed", final=True)
 
                 logger.info(f"构建任务完成: {task_id}, 产物数量: {len(artifacts)}")
 
@@ -471,15 +422,13 @@ class BuildService:
                     session.add(task)
                     await session.commit()
 
-                await self._create_build_log(
-                    task.id,
-                    BuildLog.create_error_log(task.id, error_msg, source="build_service")
-                )
+                await self._emit_log(task.id, "error", error_msg)
+                await self._emit_log(task.id, "error", "任务执行失败", type="task_failed", final=True)
 
             finally:
                 # 清理运行中的任务
-                if task_id in self._running_tasks:
-                    del self._running_tasks[task_id]
+                if task_id in BuildService._running_tasks:
+                    del BuildService._running_tasks[task_id]
 
     async def _execute_apk_extraction(self, task_id: str) -> None:
         """执行APK提取任务。"""
@@ -518,10 +467,8 @@ class BuildService:
                 session.add(task)
                 await session.commit()
 
-                await self._create_build_log(
-                    task.id,
-                    BuildLog.create_build_complete_log(task.id, "APK提取", True)
-                )
+                await self._emit_log(task.id, "success", "APK提取任务执行成功")
+                await self._emit_log(task.id, "info", "任务已完成！", type="task_completed", status="completed", final=True)
 
                 logger.info(f"APK提取任务完成: {task_id}")
 
@@ -536,15 +483,13 @@ class BuildService:
                     session.add(task)
                     await session.commit()
 
-                await self._create_build_log(
-                    task.id,
-                    BuildLog.create_error_log(task.id, error_msg, source="build_service")
-                )
+                await self._emit_log(task.id, "error", error_msg)
+                await self._emit_log(task.id, "error", "任务执行失败", type="task_failed", final=True)
 
             finally:
                 # 清理运行中的任务
-                if task_id in self._running_tasks:
-                    del self._running_tasks[task_id]
+                if task_id in BuildService._running_tasks:
+                    del BuildService._running_tasks[task_id]
 
     async def _execute_gradle_with_logging(
         self,
@@ -632,22 +577,16 @@ class BuildService:
                             result["output"] += line + "\n"
                         else:  # stderr
                             result["error"] += line + "\n"
-                            # 避免日志编码错误 - 使用errors='replace'处理无法编码的字符
-                            try:
-                                logger.info(f"[GRADLE stderr] {line}")
-                            except UnicodeEncodeError:
-                                # 如果logger仍然失败，跳过控制台输出
-                                pass
+                            # 不再输出 stderr 到 logger，避免编码问题
 
-                        # 解析日志并存入数据库（这个会发送到SSE）
-                        logs = BuildLog.parse_gradle_output(task_id, line)
-                        for log in logs:
-                            await self._create_build_log(task_id, log)
+                        # 解析日志级别并发送到队列
+                        log_level = self._parse_gradle_log_level(line)
+                        await self._emit_log(task_id, log_level, line)
 
                         # 更新进度
                         progress = self._parse_gradle_progress(line)
                         if progress > 0:
-                            await self._update_task_progress(task_id, progress, f"{line[:100]}")
+                            await self._update_task_progress(task_id, progress, line[:100])
 
                     except:
                         # 超时,继续循环
@@ -669,12 +608,11 @@ class BuildService:
                     line = line.decode('utf-8').strip()
                     if line:
                         result["output"] += line + "\n"
-                        logs = BuildLog.parse_gradle_output(task_id, line)
-                        for log in logs:
-                            await self._create_build_log(task_id, log)
+                        log_level = self._parse_gradle_log_level(line)
+                        await self._emit_log(task_id, log_level, line)
                         progress = self._parse_gradle_progress(line)
                         if progress > 0:
-                            await self._update_task_progress(task_id, progress, f"{line}")
+                            await self._update_task_progress(task_id, progress, line)
 
                 await process.wait()
 
@@ -696,6 +634,25 @@ class BuildService:
             result["build_time"] = int((datetime.utcnow() - start_time).total_seconds())
 
         return result
+
+    def _parse_gradle_log_level(self, line: str) -> str:
+        """解析Gradle输出中的日志级别。"""
+        line_lower = line.lower()
+
+        if line.startswith('FAILURE:'):
+            return "error"
+        elif line.startswith('WARNING:'):
+            return "warning"
+        elif ':error:' in line_lower:
+            return "error"
+        elif ':warn:' in line_lower:
+            return "warning"
+        elif ':debug:' in line_lower:
+            return "debug"
+        elif 'success' in line_lower or '完成' in line:
+            return "success"
+        else:
+            return "info"
 
     def _parse_gradle_progress(self, line: str) -> int:
         """解析Gradle输出中的进度信息。"""
@@ -732,27 +689,42 @@ class BuildService:
                 await session.execute(stmt)
                 await session.commit()
 
-                # 创建进度日志
-                log = BuildLog.create_progress_log(task_id, progress, message)
-                session.add(log)
-                await session.commit()
+                # 发送进度日志到队列
+                await self._emit_log(task_id, "info", message, progress=progress)
 
                 logger.debug(f"任务 {task_id} 进度更新到 {progress}%: {message}")
 
         except Exception as e:
             logger.error(f"更新任务进度失败: {e}")
 
-    async def _create_build_log(self, task_id: str, log: BuildLog) -> None:
-        """创建构建日志。"""
-        # 为后台任务创建独立的session
-        from ..config.database import AsyncSessionLocal
+    async def _emit_log(
+        self,
+        task_id: str,
+        log_level: str,
+        message: str,
+        progress: Optional[int] = None,
+        **kwargs
+    ) -> None:
+        """发送日志到队列。"""
+        if task_id not in BuildService._log_queues:
+            logger.warning(f"任务 {task_id} 的日志队列不存在")
+            return
+
+        log_entry = {
+            "log_level": log_level.upper(),
+            "message": message,
+            "timestamp": datetime.utcnow().isoformat(),
+            "task_id": task_id,
+            **kwargs
+        }
+
+        if progress is not None:
+            log_entry["progress"] = progress
 
         try:
-            async with AsyncSessionLocal() as session:
-                session.add(log)
-                await session.commit()
+            await BuildService._log_queues[task_id].put(log_entry)
         except Exception as e:
-            logger.error(f"创建构建日志失败: {e}")
+            logger.error(f"发送日志失败: {e}")
 
     async def get_active_tasks(self) -> List[BuildTask]:
         """获取活跃的任务列表。"""

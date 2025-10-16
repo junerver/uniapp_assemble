@@ -16,7 +16,6 @@ from sse_starlette.sse import EventSourceResponse
 
 from ..config.database import get_async_session
 from ..models.build_task import BuildTask, TaskType, TaskStatus
-from ..models.build_log import BuildLog, LogLevel
 from ..services.build_service import BuildService
 from ..utils.exceptions import (
     BuildError,
@@ -78,21 +77,7 @@ class BuildTaskResponse(BaseModel):
         return cls(**task.to_dict())
 
 
-class BuildLogResponse(BaseModel):
-    """构建日志响应模型。"""
-    id: str
-    build_task_id: str
-    log_level: str
-    timestamp: str
-    message: str
-    source: Optional[str]
-    line_number: Optional[int]
-    created_at: Optional[str]
-
-    @classmethod
-    def from_build_log(cls, log: BuildLog) -> "BuildLogResponse":
-        """从BuildLog模型创建响应对象。"""
-        return cls(**log.to_dict())
+# BuildLogResponse 已移除 - 日志不再持久化到数据库
 
 
 class BuildSafetyCheckRequest(BaseModel):
@@ -241,14 +226,14 @@ async def cancel_build_task(
         raise HTTPException(status_code=500, detail=f"取消构建任务失败: {str(e)}")
 
 
-@router.get("/tasks/{task_id}/logs", response_model=List[BuildLogResponse])
+@router.get("/tasks/{task_id}/logs", response_model=List[Dict[str, Any]])
 async def get_build_task_logs(
     task_id: str,
     limit: int = Query(100, ge=1, le=1000, description="日志数量限制"),
     service: BuildService = Depends(get_build_service)
-) -> List[BuildLogResponse]:
+) -> List[Dict[str, Any]]:
     """
-    获取构建任务日志。
+    获取构建任务日志（已废弃 - 日志不再持久化）。
 
     Args:
         task_id: 任务ID
@@ -256,18 +241,14 @@ async def get_build_task_logs(
         service: 构建服务
 
     Returns:
-        构建日志列表
+        空列表（日志不再持久化到数据库）
 
     Raises:
         HTTPException: 获取失败
     """
-    try:
-        logs = await service.get_task_logs(task_id, limit)
-        return [BuildLogResponse(**log) for log in logs]
-
-    except Exception as e:
-        logger.error(f"获取构建任务日志失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取构建任务日志失败: {str(e)}")
+    # 日志不再持久化，返回空列表
+    # 请使用 /tasks/{task_id}/logs/stream 端点获取实时日志
+    return []
 
 
 @router.get("/tasks/{task_id}/logs/stream")
