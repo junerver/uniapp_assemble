@@ -245,7 +245,8 @@ class BuildLog(Base):
     @classmethod
     def create_progress_log(cls, build_task_id: str, progress: int, step_description: str) -> "BuildLog":
         """创建进度日志。"""
-        message = f"[{progress}%] {step_description}"
+        # 不添加 [progress%] 前缀，只输出步骤描述
+        message = step_description
         return cls.create_info_log(
             build_task_id=build_task_id,
             message=message,

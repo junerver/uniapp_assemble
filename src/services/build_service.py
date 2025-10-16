@@ -647,7 +647,7 @@ class BuildService:
                         # 更新进度
                         progress = self._parse_gradle_progress(line)
                         if progress > 0:
-                            await self._update_task_progress(task_id, progress, f"构建中: {line[:100]}")
+                            await self._update_task_progress(task_id, progress, f"{line[:100]}")
 
                     except:
                         # 超时,继续循环
@@ -674,7 +674,7 @@ class BuildService:
                             await self._create_build_log(task_id, log)
                         progress = self._parse_gradle_progress(line)
                         if progress > 0:
-                            await self._update_task_progress(task_id, progress, f"构建中: {line}")
+                            await self._update_task_progress(task_id, progress, f"{line}")
 
                 await process.wait()
 
