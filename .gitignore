@@ -132,3 +132,32 @@ monitor_*.py
 handler_*.py
 *_concepts.py
 concepts_*.py
+
+# Temporary/Debug files (Principle VIII: Code Hygiene)
+# These patterns enforce no temporary verification scripts in repo
+debug_*.py
+debug_*.js
+debug_*.html
+*_debug.py
+*_debug.js
+fix_*.py
+fix_*.js
+temp_*.py
+temp_*.js
+temp_*.html
+scratch_*.py
+scratch_*.js
+test_*.html
+foo.py
+bar.py
+asdf.py
+tmp_*.py
+quick_*.py
+throwaway_*.py
+experimental_*.py
+
+# Approved temporary locations only
+!tests/test_*.py
+!tests/*_test.py
+sandbox/
+scratch/

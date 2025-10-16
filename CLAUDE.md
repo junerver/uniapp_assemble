@@ -29,11 +29,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### 开发环境设置
 ```bash
-# 安装依赖（需要 Python 3.13+）
-pip install -e .
+# ⚠️ 重要：本项目强制使用UV包管理工具（章程第VII条原则）
+# 禁止使用裸pip和python命令
+
+# 安装UV（如果尚未安装）
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 创建虚拟环境并安装依赖
+uv venv
+uv sync --dev
 
 # 运行主应用程序
-python main.py
+uv run python -m src.main
+
+# 或使用uvicorn
+uv run uvicorn src.main:app --reload
 ```
 
 ### 规范驱动开发命令
@@ -82,6 +92,9 @@ python main.py
 3. **测试驱动开发**：TDD 是强制性的 - 测试必须在实现之前编写并失败
 4. **组件可重用性**：UI 组件和业务逻辑必须设计为可重用的
 5. **性能优化**：应用加载 < 3 秒，转换 < 500 毫秒，内存优化
+6. **用户体验一致性**：所有界面必须保持一致的交互模式和视觉设计
+7. **UV包管理（强制）**：所有Python操作必须使用UV，禁止裸python/pip命令
+8. **代码卫生和清理（强制）**：临时验证脚本/调试代码必须在验证完成后立即删除
 
 ## 关键文件及其用途
 
@@ -108,3 +121,25 @@ python main.py
 ## 环境变量
 
 - `SPECIFY_FEATURE`：由功能创建脚本自动设置，以跟踪当前功能上下文
+
+## 临时文件管理（重要）
+
+⚠️ **强制要求**：所有临时验证脚本、调试代码必须在完成验证后立即删除（章程第VIII条原则）
+
+### 禁止的文件模式
+- ❌ `debug_*.py`, `debug_*.js`, `debug_*.html` - 调试文件
+- ❌ `test_*.html` - 临时HTML测试文件（仅允许在tests/目录）
+- ❌ `fix_*.py`, `temp_*.py` - 临时修复/测试脚本
+- ❌ `foo.py`, `bar.py`, `asdf.py` - 随意命名的临时文件
+- ❌ 大块注释代码 - 使用版本控制历史而非注释
+
+### 允许的临时位置
+- ✅ `/temp/` - gitignored，应用启动时自动清理
+- ✅ `/sandbox/` - gitignored，手动实验区域
+- ✅ `tests/test_*.py` - 正式测试文件（仅限tests/目录）
+
+### 最佳实践
+1. 如果需要临时验证代码，使用 `/sandbox/` 目录
+2. 验证完成后立即删除临时文件
+3. 正式测试应放在 `tests/` 目录并遵循命名约定
+4. 提交前运行 `git status` 确保没有遗留临时文件
