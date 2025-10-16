@@ -586,16 +586,62 @@ function startLogStreaming(taskId) {
             try {
                 const logData = JSON.parse(event.data);
 
-                // 解析日志数据
+                // 处理不同类型的事件
+                if (logData.type === 'heartbeat') {
+                    // 心跳事件，不显示在日志中
+                    console.log(`心跳: ${logData.message}`);
+                    return;
+                }
+
+                if (logData.type === 'task_completed') {
+                    // 任务完成事件
+                    addBuildLog('任务已完成！', 'success');
+                    state.buildStatus = 'success';
+                    setTimeout(() => {
+                        stopLogStreaming();
+                        handleBuildComplete(logData);
+                    }, 1000);
+                    return;
+                }
+
+                if (logData.type === 'timeout') {
+                    // 超时事件
+                    addBuildLog(`日志流超时: ${logData.message}`, 'warning');
+                    addBuildLog('任务可能仍在执行中，请手动检查任务状态', 'info');
+                    stopLogStreaming(); // 停止连接，避免重新连接
+                    return;
+                }
+
+                if (logData.type === 'error') {
+                    // 错误事件
+                    addBuildLog(`SSE错误: ${logData.error}`, 'error');
+
+                    // 如果是致命错误，停止连接
+                    if (logData.error && logData.error.includes('任务不存在')) {
+                        state.buildStatus = 'error';
+                        stopLogStreaming();
+                    }
+                    return;
+                }
+
+                if (logData.type === 'limit_reached') {
+                    // 达到日志数量限制
+                    addBuildLog(`达到日志数量限制: ${logData.message}`, 'warning');
+                    addBuildLog('日志流已结束，请手动检查任务状态', 'info');
+                    stopLogStreaming(); // 停止连接
+                    return;
+                }
+
+                // 处理普通日志数据
                 if (logData.message) {
                     let logType = 'info';
 
                     // 根据日志级别设置显示样式
-                    if (logData.level === 'ERROR') {
+                    if (logData.log_level === 'ERROR') {
                         logType = 'error';
-                    } else if (logData.level === 'WARNING') {
+                    } else if (logData.log_level === 'WARNING') {
                         logType = 'warning';
-                    } else if (logData.level === 'SUCCESS' || logData.message.includes('成功') || logData.message.includes('完成')) {
+                    } else if (logData.log_level === 'SUCCESS' || logData.message.includes('成功') || logData.message.includes('完成')) {
                         logType = 'success';
                     }
 
@@ -617,34 +663,114 @@ function startLogStreaming(taskId) {
         // 监听连接关闭事件
         logEventSource.addEventListener('error', (event) => {
             console.error('日志流连接错误:', event);
-            addBuildLog('日志流连接中断，尝试重新连接...', 'warning');
 
-            // 尝试重新连接
-            setTimeout(() => {
-                if (state.buildTaskId === taskId && state.buildStatus === 'running') {
-                    console.log('尝试重新连接日志流...');
-                    startLogStreaming(taskId);
-                }
-            }, 3000); // 3秒后重试
-        });
+            // 只有在任务仍在运行时才尝试重新连接
+            if (state.buildStatus === 'running') {
+                addBuildLog('日志流连接中断，尝试重新连接...', 'warning');
 
-        // 监听自定义的构建完成事件
-        logEventSource.addEventListener('build_complete', (event) => {
-            try {
-                const result = JSON.parse(event.data);
-                handleBuildComplete(result);
-            } catch (error) {
-                console.error('解析构建完成事件失败:', error);
+                setTimeout(() => {
+                    if (state.buildTaskId === taskId && state.buildStatus === 'running') {
+                        console.log('尝试重新连接日志流...');
+                        startLogStreaming(taskId);
+                    }
+                }, 3000); // 3秒后重试
+            } else {
+                console.log('任务已结束，不重新连接日志流');
             }
         });
 
-        // 监听自定义的构建失败事件
-        logEventSource.addEventListener('build_failed', (event) => {
+        // 监听自定义的连接事件
+        logEventSource.addEventListener('connected', (event) => {
             try {
-                const error = JSON.parse(event.data);
-                handleBuildFailed(error);
+                const data = JSON.parse(event.data);
+                console.log('SSE连接已建立:', data.message);
+                addBuildLog(data.message || '已连接到实时日志流', 'success');
             } catch (error) {
-                console.error('解析构建失败事件失败:', error);
+                console.log('SSE连接已建立');
+                addBuildLog('已连接到实时日志流', 'success');
+            }
+        });
+
+        // 监听自定义的状态事件
+        logEventSource.addEventListener('status', (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                console.log(`任务状态更新: ${data.status} (${data.progress}%)`);
+
+                // 更新构建状态
+                if (data.status === 'completed') {
+                    state.buildStatus = 'success';
+                } else if (data.status === 'failed') {
+                    state.buildStatus = 'error';
+                }
+
+                if (data.progress !== undefined) {
+                    updateBuildProgress(data.progress, `任务状态: ${data.status}`);
+                }
+            } catch (error) {
+                console.error('解析状态事件失败:', error);
+            }
+        });
+
+        // 监听自定义的完成事件
+        logEventSource.addEventListener('completed', (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                console.log('收到任务完成事件:', data);
+                addBuildLog('任务已完成！', 'success');
+
+                // 更新状态并停止连接
+                state.buildStatus = 'success';
+
+                if (data.final) {
+                    // 最终完成事件，停止日志流
+                    setTimeout(() => {
+                        stopLogStreaming();
+                        handleBuildComplete(data);
+                    }, 1000); // 延迟1秒确保所有日志都被接收
+                }
+            } catch (error) {
+                console.error('解析完成事件失败:', error);
+            }
+        });
+
+        // 监听自定义的错误事件
+        logEventSource.addEventListener('error', (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                addBuildLog(`SSE错误: ${data.error}`, 'error');
+
+                // 如果是严重错误，停止连接
+                if (data.error && data.error.includes('任务不存在')) {
+                    state.buildStatus = 'error';
+                    stopLogStreaming();
+                }
+            } catch (error) {
+                console.error('解析错误事件失败:', error);
+            }
+        });
+
+        // 监听自定义的超时事件
+        logEventSource.addEventListener('timeout', (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                addBuildLog(`日志流超时: ${data.message}`, 'warning');
+                addBuildLog('任务可能仍在执行中，请手动检查任务状态', 'info');
+                stopLogStreaming(); // 停止连接，避免重新连接
+            } catch (error) {
+                console.error('解析超时事件失败:', error);
+            }
+        });
+
+        // 监听自定义的限制事件
+        logEventSource.addEventListener('limit_reached', (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                addBuildLog(`达到日志数量限制: ${data.message}`, 'warning');
+                addBuildLog('日志流已结束，请手动检查任务状态', 'info');
+                stopLogStreaming(); // 停止连接
+            } catch (error) {
+                console.error('解析限制事件失败:', error);
             }
         });
 
@@ -659,6 +785,7 @@ function startLogStreaming(taskId) {
  */
 function stopLogStreaming() {
     if (logEventSource) {
+        console.log('正在关闭SSE连接...');
         logEventSource.close();
         logEventSource = null;
         console.log('日志流已停止');
@@ -666,6 +793,10 @@ function stopLogStreaming() {
 
     // 清空任务ID
     state.buildTaskId = null;
+
+    // 强制设置状态为非运行状态
+    state.buildStatus = 'idle';
+    console.log('构建状态已重置为: idle');
 }
 
 /**
@@ -691,6 +822,9 @@ function updateBuildProgress(progress, message) {
 function handleBuildComplete(result) {
     console.log('构建完成:', result);
 
+    // 确保状态被正确设置
+    state.buildStatus = 'success';
+
     addBuildLog('构建任务完成！', 'success');
 
     // 显示构建结果
@@ -700,13 +834,15 @@ function handleBuildComplete(result) {
             <div class="p-4 bg-green-50 border border-green-200 rounded-md">
                 <h4 class="text-green-800 font-semibold mb-2">构建完成</h4>
                 <div class="text-sm text-green-700">
-                    <p>构建时间: ${result.build_time ? `${result.build_time}秒` : '未知'}</p>
-                    <p>构建产物: ${result.artifacts ? result.artifacts.length : 0} 个</p>
+                    <p>任务ID: ${result.task_id || '未知'}</p>
+                    <p>最终状态: ${result.status || 'completed'}</p>
+                    ${result.build_time ? `<p>构建时间: ${result.build_time}秒</p>` : ''}
+                    ${result.artifacts ? `<p>构建产物: ${result.artifacts.length} 个</p>` : ''}
                     ${result.artifacts && result.artifacts.length > 0 ?
                         `<div class="mt-2">
                             <p class="font-medium">生成的文件:</p>
                             <ul class="list-disc list-inside text-xs">
-                                ${result.artifacts.map(artifact => `<li>${artifact}</li>`).join('')}
+                                ${result.artifacts.map(artifact => `<li>${artifact.name || artifact}</li>`).join('')}
                             </ul>
                         </div>` : ''}
                 </div>
@@ -715,12 +851,12 @@ function handleBuildComplete(result) {
     }
 
     // 恢复UI状态
-    elements.btnStartBuild.classList.remove('hidden');
-    elements.btnStopBuild.classList.add('hidden');
-    state.buildStatus = 'success';
-
-    // 停止日志流
-    stopLogStreaming();
+    if (elements.btnStartBuild) {
+        elements.btnStartBuild.classList.remove('hidden');
+    }
+    if (elements.btnStopBuild) {
+        elements.btnStopBuild.classList.add('hidden');
+    }
 
     // 显示成功通知
     showToast('构建任务完成！', 'success');
@@ -732,6 +868,9 @@ function handleBuildComplete(result) {
 function handleBuildFailed(error) {
     console.error('构建失败:', error);
 
+    // 确保状态被正确设置
+    state.buildStatus = 'error';
+
     addBuildLog('构建任务失败！', 'error');
 
     // 显示错误结果
@@ -741,6 +880,7 @@ function handleBuildFailed(error) {
             <div class="p-4 bg-red-50 border border-red-200 rounded-md">
                 <h4 class="text-red-800 font-semibold mb-2">构建失败</h4>
                 <div class="text-sm text-red-700">
+                    <p>任务ID: ${error.task_id || '未知'}</p>
                     <p>错误信息: ${error.error || error.message || '未知错误'}</p>
                     <p>失败原因: ${error.reason || '请查看日志了解详细信息'}</p>
                 </div>
@@ -749,12 +889,12 @@ function handleBuildFailed(error) {
     }
 
     // 恢复UI状态
-    elements.btnStartBuild.classList.remove('hidden');
-    elements.btnStopBuild.classList.add('hidden');
-    state.buildStatus = 'error';
-
-    // 停止日志流
-    stopLogStreaming();
+    if (elements.btnStartBuild) {
+        elements.btnStartBuild.classList.remove('hidden');
+    }
+    if (elements.btnStopBuild) {
+        elements.btnStopBuild.classList.add('hidden');
+    }
 
     // 显示失败通知
     showToast('构建任务失败！', 'error');

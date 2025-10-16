@@ -184,15 +184,16 @@ class BuildService:
 
     async def stream_task_logs(self, task_id: str) -> AsyncGenerator[Dict[str, Any], None]:
         """实时流式获取任务日志。"""
-        from ..config.database import get_async_session
+        from ..config.database import AsyncSessionLocal
 
         last_log_time = datetime.utcnow() - timedelta(seconds=1)
+        no_log_count = 0  # 连续无日志计数
+        max_no_log_cycles = 120  # 最大无日志循环次数 (约60秒)
 
         while True:
             # 为SSE创建独立的数据库会话
-            session = get_async_session()
             try:
-                async with session as session:
+                async with AsyncSessionLocal() as session:
                     result = await session.execute(
                         select(BuildLog)
                         .where(BuildLog.build_task_id == task_id)
@@ -202,14 +203,46 @@ class BuildService:
                     )
                     logs = result.scalars().all()
 
-                    for log in logs:
-                        yield log.to_dict()
-                        last_log_time = log.timestamp
+                    if logs:
+                        # 有新日志，发送并重置计数
+                        for log in logs:
+                            yield log.to_dict()
+                            last_log_time = log.timestamp
+                        no_log_count = 0
+                    else:
+                        # 没有新日志，增加计数
+                        no_log_count += 1
 
-                    # 检查任务是否完成
-                    task = await session.get(BuildTask, task_id)
-                    if task and task.is_completed:
-                        break
+                        # 检查任务是否完成
+                        task = await session.get(BuildTask, task_id)
+                        if task and task.is_completed:
+                            # 任务完成，发送完成信号并退出
+                            yield {
+                                "type": "task_completed",
+                                "task_id": task_id,
+                                "status": task.status,
+                                "final": True
+                            }
+                            break
+
+                        # 如果长时间无日志且任务未完成，发送心跳
+                        if no_log_count % 10 == 0:  # 每5秒发送一次心跳
+                            yield {
+                                "type": "heartbeat",
+                                "task_id": task_id,
+                                "message": "任务执行中，等待新日志...",
+                                "no_log_cycles": no_log_count
+                            }
+
+                        # 如果超时，退出循环
+                        if no_log_count >= max_no_log_cycles:
+                            yield {
+                                "type": "timeout",
+                                "task_id": task_id,
+                                "message": "日志流超时，任务可能仍在执行中",
+                                "no_log_cycles": no_log_count
+                            }
+                            break
 
             except Exception as e:
                 logger.error(f"SSE数据库查询失败: {e}")

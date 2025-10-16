@@ -4,6 +4,7 @@
 提供构建任务的创建、执行、监控和管理功能。
 """
 
+import json
 import logging
 from typing import List, Optional, Dict, Any
 from uuid import UUID
@@ -285,26 +286,114 @@ async def stream_build_task_logs(
     """
     async def event_generator():
         try:
-            async for log in service.stream_task_logs(task_id):
-                yield {
-                    "event": "log",
-                    "data": log
-                }
-
-            # 发送完成事件
+            # 发送连接建立事件
             yield {
-                "event": "completed",
-                "data": {"task_id": task_id, "status": "completed"}
+                "event": "connected",
+                "data": json.dumps({"message": "已连接到实时日志流", "task_id": task_id})
             }
+
+            # 首先检查任务是否存在
+            task_status = await service.get_task_status(task_id)
+            if not task_status:
+                yield {
+                    "event": "error",
+                    "data": json.dumps({"error": f"任务不存在: {task_id}"})
+                }
+                return
+
+            # 发送任务当前状态
+            yield {
+                "event": "status",
+                "data": json.dumps({"task_id": task_id, "status": task_status["status"], "progress": task_status.get("progress", 0)})
+            }
+
+            # 如果任务已完成，发送完成事件并结束连接
+            if task_status.get("is_completed"):
+                yield {
+                    "event": "completed",
+                    "data": json.dumps({"task_id": task_id, "status": task_status["status"], "final": True})
+                }
+                logger.info(f"任务 {task_id} 已完成，结束SSE流")
+                return
+
+            # 如果任务正在运行或待执行，流式发送日志
+            log_count = 0
+            max_logs = 1000  # 防止无限循环
+
+            try:
+                async for log in service.stream_task_logs(task_id):
+                    log_count += 1
+                    yield {
+                        "event": "log",
+                        "data": json.dumps(log)
+                    }
+
+                    # 检查日志类型
+                    if log.get("type") == "task_completed":
+                        logger.info(f"收到任务完成信号: {task_id}")
+                        yield {
+                            "event": "completed",
+                            "data": json.dumps({"task_id": task_id, "status": log.get("status", "completed"), "final": True})
+                        }
+                        return
+
+                    if log.get("type") == "timeout":
+                        logger.warning(f"日志流超时: {task_id}")
+                        yield {
+                            "event": "timeout",
+                            "data": json.dumps({"task_id": task_id, "message": "日志流超时，任务可能仍在执行中"})
+                        }
+                        return
+
+                    # 防止无限循环
+                    if log_count > max_logs:
+                        logger.warning(f"达到最大日志数量限制 ({max_logs}): {task_id}")
+                        yield {
+                            "event": "limit_reached",
+                            "data": json.dumps({"task_id": task_id, "message": f"已达到最大日志数量限制 ({max_logs})"})
+                        }
+                        return
+
+                    # 定期检查任务状态，每50条日志检查一次
+                    if log_count % 50 == 0:
+                        current_status = await service.get_task_status(task_id)
+                        if current_status and current_status.get("is_completed"):
+                            yield {
+                                "event": "completed",
+                                "data": json.dumps({"task_id": task_id, "status": current_status["status"], "final": True})
+                            }
+                            return
+
+            except Exception as stream_error:
+                logger.error(f"日志流异常: {stream_error}")
+                yield {
+                    "event": "error",
+                    "data": json.dumps({"error": f"日志流异常: {str(stream_error)}"})
+                }
+                return
+
+            # 如果没有更多日志且任务未完成，检查任务最终状态
+            final_status = await service.get_task_status(task_id)
+            if final_status and final_status.get("is_completed"):
+                yield {
+                    "event": "completed",
+                    "data": json.dumps({"task_id": task_id, "status": final_status["status"], "final": True})
+                }
+            else:
+                # 任务仍在运行中但没有新日志，发送心跳状态
+                yield {
+                    "event": "heartbeat",
+                    "data": json.dumps({"task_id": task_id, "status": "running", "message": "任务执行中，暂无新日志..."})
+                }
 
         except Exception as e:
             logger.error(f"流式日志生成失败: {e}")
             yield {
                 "event": "error",
-                "data": {"error": str(e)}
+                "data": json.dumps({"error": str(e)})
             }
 
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(event_generator(), ping=30)  # 30秒ping保持连接
 
 
 @router.get("/tasks/{task_id}/safety-check")

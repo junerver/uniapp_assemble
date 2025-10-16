@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>强制刷新页面 - 解决SSE连接问题</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .step { background: #e8f5e8; border-left: 4px solid #4caf50; padding: 15px; margin: 20px 0; border-radius: 5px; }
+        .warning { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 5px; }
+        .error { background: #f8d7da; border-left: 4px solid #dc3545; padding: 15px; margin: 20px 0; border-radius: 5px; }
+        .success { background: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0; border-radius: 5px; }
+        button { background: #007bff; color: white; border: none; padding: 12px 24px; border-radius: 5px; cursor: pointer; margin: 10px 5px; font-size: 16px; }
+        button:hover { background: #0056b3; }
+        .btn-danger { background: #dc3545; }
+        .btn-danger:hover { background: #c82333; }
+        .btn-success { background: #28a745; }
+        .btn-success:hover { background: #218838; }
+        .log { background: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; margin: 10px 0; border-radius: 5px; font-family: monospace; font-size: 14px; white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 强制刷新页面 - 解决SSE连接问题</h1>
+
+        <div class="warning">
+            <h3>⚠️ 问题说明</h3>
+            <p>检测到您的浏览器正在不断重新连接SSE日志流端点，这通常是由于浏览器缓存了旧版本的JavaScript代码导致的。</p>
+            <p><strong>症状：</strong> 浏览器网络面板显示每3秒向 /api/builds/tasks/.../logs/stream 发送新请求</p>
+        </div>
+
+        <div class="step">
+            <h3>📋 解决步骤</h3>
+            <ol>
+                <li><strong>第一步：</strong>点击下面的"清除缓存并刷新"按钮</li>
+                <li><strong>第二步：</strong>如果第一步无效，手动按 Ctrl+F5 强制刷新</li>
+                <li><strong>第三步：</strong>如果仍然无效，清除浏览器缓存</li>
+                <li><strong>第四步：</strong>使用无痕/隐私模式重新访问</li>
+            </ol>
+        </div>
+
+        <div style="text-align: center; margin: 30px 0;">
+            <button onclick="clearCacheAndRefresh()" class="btn-danger">🗑️ 清除缓存并刷新</button>
+            <button onclick="forceRefresh()">🔄 强制刷新页面</button>
+            <button onclick="testSSEConnection()" class="btn-success">🧪 测试SSE连接</button>
+        </div>
+
+        <div id="test-results" class="hidden">
+            <h3>🧪 SSE连接测试结果</h3>
+            <div id="test-log" class="log">等待测试开始...</div>
+        </div>
+
+        <div class="success">
+            <h3>✅ 验证成功标志</h3>
+            <p>当您看到以下情况时，说明问题已解决：</p>
+            <ul>
+                <li>SSE连接不再每3秒重新建立</li>
+                <li>构建日志显示"任务已完成！"而不是不断"已连接到实时日志流"</li>
+                <li>浏览器网络面板不再显示持续的stream请求</li>
+            </ul>
+        </div>
+
+        <div class="error">
+            <h3>❌ 如果问题仍然存在</h3>
+            <p>请联系开发者或查看浏览器控制台的错误信息。</p>
+            <p><strong>临时解决方案：</strong> 使用测试页面 <a href="/test_sse.html" target="_blank">test_sse.html</a> 验证后端是否正常工作。</p>
+        </div>
+    </div>
+
+    <script>
+        function addLog(message) {
+            const logDiv = document.getElementById('test-log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function clearCacheAndRefresh() {
+            addLog('开始清除缓存...');
+
+            // 清除localStorage
+            try {
+                localStorage.clear();
+                addLog('✅ 已清除localStorage');
+            } catch (e) {
+                addLog(`❌ 清除localStorage失败: ${e.message}`);
+            }
+
+            // 清除sessionStorage
+            try {
+                sessionStorage.clear();
+                addLog('✅ 已清除sessionStorage');
+            } catch (e) {
+                addLog(`❌ 清除sessionStorage失败: ${e.message}`);
+            }
+
+            // 强制刷新页面
+            setTimeout(() => {
+                addLog('🔄 正在刷新页面...');
+                window.location.href = window.location.href + '?t=' + Date.now();
+            }, 1000);
+        }
+
+        function forceRefresh() {
+            addLog('🔄 强制刷新页面...');
+            window.location.href = window.location.href + '?t=' + Date.now();
+        }
+
+        function testSSEConnection() {
+            const resultsDiv = document.getElementById('test-results');
+            const logDiv = document.getElementById('test-log');
+
+            resultsDiv.classList.remove('hidden');
+            logDiv.innerHTML = '开始SSE连接测试...\n';
+
+            addLog('🔗 连接到SSE端点...');
+
+            const eventSource = new EventSource('/api/builds/tasks/a58a2d40-250c-463b-9082-85e0c38ff3e0/logs/stream');
+            let eventCount = 0;
+            let completedReceived = false;
+
+            const timeout = setTimeout(() => {
+                if (!completedReceived) {
+                    addLog('⏰ 测试超时（10秒）');
+                    addLog('📊 收到的事件数量: ' + eventCount);
+                    eventSource.close();
+
+                    if (eventCount >= 3 && completedReceived) {
+                        addLog('✅ SSE连接正常工作！');
+                    } else {
+                        addLog('❌ SSE连接可能存在问题');
+                    }
+                }
+            }, 10000);
+
+            eventSource.addEventListener('open', () => {
+                addLog('🔗 SSE连接已建立');
+                eventCount++;
+            });
+
+            eventSource.addEventListener('connected', (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    addLog(`✅ 收到连接事件: ${data.message}`);
+                    eventCount++;
+                } catch (error) {
+                    addLog(`✅ 收到连接事件: ${event.data}`);
+                    eventCount++;
+                }
+            });
+
+            eventSource.addEventListener('status', (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    addLog(`📊 收到状态事件: ${data.status} (${data.progress}%)`);
+                    eventCount++;
+                } catch (error) {
+                    addLog(`📊 收到状态事件: ${event.data}`);
+                    eventCount++;
+                }
+            });
+
+            eventSource.addEventListener('completed', (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    addLog(`🎯 收到完成事件: final=${data.final}, status=${data.status}`);
+                    eventCount++;
+                    completedReceived = true;
+
+                    if (data.final) {
+                        addLog('✅ 收到最终完成事件，SSE工作正常！');
+                        clearTimeout(timeout);
+                        setTimeout(() => {
+                            eventSource.close();
+                            addLog('🔚 测试完成，关闭SSE连接');
+                        }, 1000);
+                    }
+                } catch (error) {
+                    addLog(`🎯 收到完成事件: ${event.data}`);
+                    eventCount++;
+                    completedReceived = true;
+                }
+            });
+
+            eventSource.addEventListener('error', (event) => {
+                addLog(`❌ SSE错误: ${event.type}`);
+                eventCount++;
+            });
+
+            eventSource.addEventListener('timeout', (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    addLog(`⏰ 收到超时事件: ${data.message}`);
+                    eventCount++;
+                } catch (error) {
+                    addLog(`⏰ 收到超时事件: ${event.data}`);
+                    eventCount++;
+                }
+            });
+        }
+
+        // 页面加载时显示提示
+        window.addEventListener('load', () => {
+            console.log('强制刷新页面已加载');
+        });
+    </script>
+</body>
+</html>
