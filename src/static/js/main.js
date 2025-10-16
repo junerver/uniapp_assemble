@@ -598,10 +598,26 @@ function startLogStreaming(taskId) {
             addBuildLog('已连接到实时日志流', 'success');
         });
 
-        // 监听消息事件
+        // 监听默认的 message 事件
         logEventSource.addEventListener('message', (event) => {
             try {
                 const logData = JSON.parse(event.data);
+                console.log('[SSE message]:', logData);
+                // 处理普通消息（如果有的话）
+                if (logData.message) {
+                    addBuildLog(logData.message, 'info');
+                }
+            } catch (error) {
+                console.error('解析message事件失败:', error);
+                addBuildLog(event.data, 'info');
+            }
+        });
+
+        // 监听自定义的 log 事件（这是后端实际发送的日志事件）
+        logEventSource.addEventListener('log', (event) => {
+            try {
+                const logData = JSON.parse(event.data);
+                console.log('[SSE log]:', logData);
 
                 // 处理不同类型的事件
                 if (logData.type === 'heartbeat') {
