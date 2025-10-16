@@ -719,14 +719,21 @@ function startLogStreaming(taskId) {
                 console.log('收到任务完成事件:', data);
                 addBuildLog('任务已完成！', 'success');
 
-                // 更新状态并停止连接
-                state.buildStatus = 'success';
+                // 根据最终状态判断是成功还是失败
+                const isSuccess = data.status === 'completed' || data.status === 'success';
 
                 if (data.final) {
                     // 最终完成事件，停止日志流
                     setTimeout(() => {
                         stopLogStreaming();
-                        handleBuildComplete(data);
+
+                        if (isSuccess) {
+                            state.buildStatus = 'success';
+                            handleBuildComplete(data);
+                        } else {
+                            state.buildStatus = 'error';
+                            handleBuildFailed(data);
+                        }
                     }, 1000); // 延迟1秒确保所有日志都被接收
                 }
             } catch (error) {
@@ -737,16 +744,23 @@ function startLogStreaming(taskId) {
         // 监听自定义的错误事件
         logEventSource.addEventListener('error', (event) => {
             try {
-                const data = JSON.parse(event.data);
-                addBuildLog(`SSE错误: ${data.error}`, 'error');
+                // 检查event.data是否存在，如果不存在则是原生error事件
+                if (event.data) {
+                    const data = JSON.parse(event.data);
+                    addBuildLog(`SSE错误: ${data.error}`, 'error');
 
-                // 如果是严重错误，停止连接
-                if (data.error && data.error.includes('任务不存在')) {
-                    state.buildStatus = 'error';
-                    stopLogStreaming();
+                    // 如果是严重错误，停止连接
+                    if (data.error && data.error.includes('任务不存在')) {
+                        state.buildStatus = 'error';
+                        stopLogStreaming();
+                    }
+                } else {
+                    // 原生error事件，没有具体数据
+                    addBuildLog('SSE连接发生错误', 'warning');
                 }
             } catch (error) {
                 console.error('解析错误事件失败:', error);
+                addBuildLog('SSE错误事件解析失败', 'warning');
             }
         });
 
@@ -873,19 +887,61 @@ function handleBuildFailed(error) {
 
     addBuildLog('构建任务失败！', 'error');
 
-    // 显示错误结果
-    if (elements.buildResult) {
-        elements.buildResult.classList.remove('hidden');
-        elements.buildResult.innerHTML = `
-            <div class="p-4 bg-red-50 border border-red-200 rounded-md">
-                <h4 class="text-red-800 font-semibold mb-2">构建失败</h4>
-                <div class="text-sm text-red-700">
-                    <p>任务ID: ${error.task_id || '未知'}</p>
-                    <p>错误信息: ${error.error || error.message || '未知错误'}</p>
-                    <p>失败原因: ${error.reason || '请查看日志了解详细信息'}</p>
+    // 从SSE完成事件中获取完整的任务详情
+    if (state.buildTaskId) {
+        // 获取完整的任务详情以显示错误信息
+        fetch(`${API_BASE}/api/builds/tasks/${state.buildTaskId}`)
+            .then(response => response.json())
+            .then(taskDetails => {
+                // 显示详细的错误结果
+                if (elements.buildResult) {
+                    elements.buildResult.classList.remove('hidden');
+                    elements.buildResult.innerHTML = `
+                        <div class="p-4 bg-red-50 border border-red-200 rounded-md">
+                            <h4 class="text-red-800 font-semibold mb-2">构建失败</h4>
+                            <div class="text-sm text-red-700">
+                                <p>任务ID: ${taskDetails.id || '未知'}</p>
+                                <p>错误信息: ${taskDetails.error_message || taskDetails.error || '未知错误'}</p>
+                                <p>失败原因: ${taskDetails.error_message ? '请查看具体错误信息' : '请查看日志了解详细信息'}</p>
+                                <p>资源包: ${taskDetails.resource_package_path || '未知'}</p>
+                                <p>Git分支: ${taskDetails.git_branch || '未知'}</p>
+                            </div>
+                        </div>
+                    `;
+                }
+            })
+            .catch(err => {
+                console.error('获取任务详情失败:', err);
+                // 如果无法获取详情，使用传入的错误信息
+                if (elements.buildResult) {
+                    elements.buildResult.classList.remove('hidden');
+                    elements.buildResult.innerHTML = `
+                        <div class="p-4 bg-red-50 border border-red-200 rounded-md">
+                            <h4 class="textred-800 font-semibold mb-2">构建失败</h4>
+                            <div class="text-sm text-red-700">
+                                <p>任务ID: ${error.task_id || '未知'}</p>
+                                <p>错误信息: ${error.error || error.message || '未知错误'}</p>
+                                <p>失败原因: ${error.reason || '请查看日志了解详细信息'}</p>
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+    } else {
+        // 如果没有任务ID，直接使用传入的错误信息
+        if (elements.buildResult) {
+            elements.buildResult.classList.remove('hidden');
+            elements.buildResult.innerHTML = `
+                <div class="p-4 bg-red-50 border border-red-200 rounded-md">
+                    <h4 class="text-red-800 font-semibold mb-2">构建失败</h4>
+                    <div class="text-sm text-red-700">
+                        <p>任务ID: ${error.task_id || '未知'}</p>
+                        <p>错误信息: ${error.error || error.message || '未知错误'}</p>
+                        <p>失败原因: ${error.reason || '请查看日志了解详细信息'}</p>
+                    </div>
                 </div>
-            </div>
-        `;
+            `;
+        }
     }
 
     // 恢复UI状态
