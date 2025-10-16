@@ -190,8 +190,9 @@ class BuildService:
 
         while True:
             # 为SSE创建独立的数据库会话
-            async with get_async_session() as session:
-                try:
+            session = get_async_session()
+            try:
+                async with session as session:
                     result = await session.execute(
                         select(BuildLog)
                         .where(BuildLog.build_task_id == task_id)
@@ -210,10 +211,10 @@ class BuildService:
                     if task and task.is_completed:
                         break
 
-                except Exception as e:
-                    logger.error(f"SSE数据库查询失败: {e}")
-                    yield {"error": f"SSE数据库查询失败: {str(e)}"}
-                    break
+            except Exception as e:
+                logger.error(f"SSE数据库查询失败: {e}")
+                yield {"error": f"SSE数据库查询失败: {str(e)}"}
+                break
 
             await asyncio.sleep(0.5)  # 等待500ms
 

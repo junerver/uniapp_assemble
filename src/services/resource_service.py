@@ -57,28 +57,71 @@ class ResourceService:
         project_path = Path(project_path)
         resource_package_path = Path(resource_package_path)
 
+        logger.info(f"开始资源替换操作: 项目={project_path}, 资源包={resource_package_path}, 分支={git_branch}")
+
         # 验证输入
+        logger.info("验证输入参数...")
         await self._validate_replacement_inputs(project_path, resource_package_path)
+        logger.info("输入参数验证通过")
 
         # 创建备份
+        logger.info("创建项目备份...")
         backup_info = await self._create_project_backup(project_path, git_branch)
+        logger.info(f"备份完成: {backup_info['backup_type']} - {backup_info.get('backup_path', 'N/A')}")
 
         # 解压资源包
+        logger.info("解压资源包...")
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             extracted_resources = await self._extract_resource_package(
                 resource_package_path, temp_path
             )
 
+            # 分析资源包结构
+            structure = extracted_resources.get("structure", {})
+            logger.info(f"资源包结构分析完成:")
+            logger.info(f"  - 总文件数: {len(extracted_resources['extracted_files'])}")
+            logger.info(f"  - 资源文件: drawable={len(structure.get('resources', {}).get('drawable', []))}, "
+                       f"layout={len(structure.get('resources', {}).get('layout', []))}, "
+                       f"values={len(structure.get('resources', {}).get('values', []))}")
+            logger.info(f"  - Assets文件: {len(structure.get('assets', []))}")
+            logger.info(f"  - 库文件: {len(structure.get('libs', []))}")
+            if structure.get('manifest'):
+                logger.info(f"  - 包含AndroidManifest.xml: {structure['manifest']}")
+
             # 执行资源替换
+            logger.info("开始执行资源替换...")
             replacement_result = await self._perform_resource_replacement(
                 project_path, extracted_resources, config_options or {}
             )
 
+            # 记录替换结果统计
+            logger.info(f"资源替换统计:")
+            logger.info(f"  - 总文件数: {replacement_result['total_files']}")
+            logger.info(f"  - 成功替换: {replacement_result['success_count']}")
+            logger.info(f"  - 跳过文件: {len(replacement_result['skipped_files'])}")
+            logger.info(f"  - 错误文件: {replacement_result['error_count']}")
+
+            # 记录详细的替换文件
+            if replacement_result['replaced_files']:
+                logger.info("成功替换的文件:")
+                for file_info in replacement_result['replaced_files'][:10]:  # 只显示前10个
+                    logger.info(f"  - {file_info['path']} ({file_info['size']} bytes)")
+                if len(replacement_result['replaced_files']) > 10:
+                    logger.info(f"  ... 还有 {len(replacement_result['replaced_files']) - 10} 个文件")
+
             # 验证替换结果
+            logger.info("验证替换结果...")
             validation_result = await self._validate_replacement_result(
                 project_path, extracted_resources
             )
+
+            if validation_result['valid']:
+                logger.info("替换结果验证通过")
+            else:
+                logger.warning(f"替换结果验证发现问题: {len(validation_result['issues'])} 个问题, {len(validation_result['warnings'])} 个警告")
+                for issue in validation_result['issues'][:5]:  # 只显示前5个问题
+                    logger.warning(f"  问题: {issue}")
 
         result = {
             "success": True,
@@ -88,7 +131,7 @@ class ResourceService:
             "git_branch": git_branch
         }
 
-        logger.info(f"资源替换完成: {project_path}")
+        logger.info(f"资源替换操作完成: {project_path}")
         return result
 
     async def _validate_replacement_inputs(
@@ -273,6 +316,17 @@ class ResourceService:
         replace_mode = config_options.get("replace_mode", "backup_existing")  # backup_existing, overwrite, skip
         target_patterns = config_options.get("target_patterns", [])  # 目标文件模式
 
+        # 将字符串模式转换为正则表达式对象
+        compiled_patterns = []
+        for pattern in target_patterns:
+            try:
+                if isinstance(pattern, str):
+                    compiled_patterns.append(re.compile(pattern))
+                else:
+                    compiled_patterns.append(pattern)
+            except re.error as e:
+                logger.warning(f"无效的正则表达式模式 '{pattern}': {e}")
+
         for file_info in extracted_resources["extracted_files"]:
             source_path = Path(file_info["extracted_path"])
             relative_path = file_info["source_path"]
@@ -280,7 +334,7 @@ class ResourceService:
 
             try:
                 # 检查是否需要替换
-                if target_patterns and not any(pattern.match(relative_path) for pattern in target_patterns):
+                if compiled_patterns and not any(pattern.search(relative_path) for pattern in compiled_patterns):
                     skipped_files.append({
                         "path": relative_path,
                         "reason": "不匹配目标模式"
