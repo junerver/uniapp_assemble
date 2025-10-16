@@ -877,17 +877,24 @@ function handleBuildComplete(result) {
 
     addBuildLog('构建任务完成！', 'success');
 
-    // 显示构建结果
+    // 自动扫描APK文件
+    setTimeout(() => {
+        if (state.currentProject) {
+            scanApkFiles();
+        }
+    }, 1000);
+
+    // 显示基本构建结果
     if (elements.buildResult) {
         elements.buildResult.classList.remove('hidden');
         elements.buildResult.innerHTML = `
             <div class="p-4 bg-green-50 border border-green-200 rounded-md">
-                <h4 class="text-green-800 font-semibold mb-2">构建完成</h4>
+                <h4 class="text-green-800 font-semibold mb-2">🎉 构建完成</h4>
                 <div class="text-sm text-green-700">
-                    <p>任务ID: ${result.task_id || '未知'}</p>
+                    <p>任务ID: ${result.task_id || 'unknown'}</p>
                     <p>最终状态: ${result.status || 'completed'}</p>
-                    ${result.build_time ? `<p>构建时间: ${result.build_time}秒</p>` : ''}
-                    ${result.artifacts ? `<p>构建产物: ${result.artifacts.length} 个</p>` : ''}
+                    ${result.build_time ? `<p>⏱️ 构建时间: ${result.build_time}秒</p>` : ''}
+                    ${result.artifacts ? `<p>📦 构建产物: ${result.artifacts.length} 个</p>` : ''}
                     ${result.artifacts && result.artifacts.length > 0 ?
                         `<div class="mt-2">
                             <p class="font-medium">生成的文件:</p>
@@ -895,6 +902,17 @@ function handleBuildComplete(result) {
                                 ${result.artifacts.map(artifact => `<li>${artifact.name || artifact}</li>`).join('')}
                             </ul>
                         </div>` : ''}
+                </div>
+            </div>
+
+            <!-- APK下载区域 -->
+            <div id="apk-download-section" class="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
+                <h4 class="text-blue-800 font-semibold mb-3">📱 APK文件管理</h4>
+                <div id="apk-download-list">
+                    <div class="text-center text-gray-500">
+                        <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                        <p class="mt-2">正在加载APK信息...</p>
+                    </div>
                 </div>
             </div>
         `;
@@ -908,8 +926,224 @@ function handleBuildComplete(result) {
         elements.btnStopBuild.classList.add('hidden');
     }
 
+    // 加载并显示构建结果
+    if (result.task_id) {
+        loadBuildResults(result.task_id);
+    }
+
     // 显示成功通知
-    showToast('构建任务完成！', 'success');
+    showToast('构建任务完成！正在自动扫描APK文件...', 'success');
+}
+
+/**
+ * 加载构建结果
+ */
+async function loadBuildResults(taskId) {
+    try {
+        const response = await fetch(`${API_BASE}/api/results/tasks/${taskId}/results`);
+
+        if (!response.ok) {
+            console.error('加载构建结果失败:', response.status);
+            return;
+        }
+
+        const resultsData = await response.json();
+        displayBuildResults(resultsData);
+
+    } catch (error) {
+        console.error('加载构建结果失败:', error);
+        // 即使加载失败，也要移除加载状态
+        const downloadSection = document.getElementById('apk-download-section');
+        if (downloadSection) {
+            downloadSection.innerHTML = `
+                <div class="text-center text-gray-500">
+                    <p>加载构建结果失败</p>
+                </div>
+            `;
+        }
+    }
+}
+
+/**
+ * 显示构建结果
+ */
+function displayBuildResults(resultsData) {
+    const downloadSection = document.getElementById('apk-download-section');
+    if (!downloadSection) return;
+
+    if (resultsData.results.length === 0) {
+        downloadSection.innerHTML = `
+            <div class="text-center text-gray-500">
+                <p>暂无构建产物</p>
+            </div>
+        `;
+        return;
+    }
+
+    // 按文件类型分组
+    const apks = resultsData.results.filter(r => r.file_type === 'apk');
+    const logs = resultsData.results.filter(r => r.file_type === 'log');
+    const metadata = resultsData.results.filter(r => r.file_type === 'metadata');
+
+    let html = '';
+
+    // APK文件部分
+    if (apks.length > 0) {
+        html += `
+            <div class="mb-4">
+                <h5 class="text-lg font-medium text-gray-900 mb-2">📱 APK文件 (${apks.length})</h5>
+                <div class="grid grid-cols-1 gap-2">
+                    ${apks.map(apk => createBuildResultItem(apk, 'apk')).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // 日志文件部分
+    if (logs.length > 0) {
+        html += `
+            <div class="mb-4">
+                <h5 class="text-lg font-medium text-gray-900 mb-2">📄 构建日志 (${logs.length})</h5>
+                <div class="grid grid-cols-1 gap-2">
+                    ${logs.map(log => createBuildResultItem(log, 'log')).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // 元数据文件部分
+    if (metadata.length > 0) {
+        html += `
+            <div class="mb-4">
+                <h5 class="text-lg font-medium text-gray-900 mb-2">📋 元数据 (${metadata.length})</h5>
+                <div class="grid grid-cols-1 gap-2">
+                    ${metadata.map(meta => createBuildResultItem(meta, 'metadata')).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // 统计信息
+    html += `
+        <div class="mt-4 pt-4 border-t border-gray-200 text-sm text-gray-600">
+            <div class="flex justify-between">
+                <span>总文件数: ${resultsData.total_count}</span>
+                <span>总大小: ${formatFileSize(resultsData.total_size)}</span>
+            </div>
+        </div>
+    `;
+
+    downloadSection.innerHTML = html;
+}
+
+/**
+ * 创建构建结果项
+ */
+function createBuildResultItem(result, type) {
+    const fileIcon = getFileIcon(type);
+    const actionButton = getActionButton(result, type);
+
+    return `
+        <div class="flex items-center justify-between p-3 bg-white rounded border border-gray-200 hover:border-gray-300 transition-colors">
+            <div class="flex items-center space-x-3">
+                <span class="text-2xl">${fileIcon}</span>
+                <div>
+                    <p class="text-sm font-medium text-gray-900">${result.filename}</p>
+                    <div class="flex items-center space-x-4 mt-1">
+                        <span class="text-xs text-gray-500">${formatFileSize(result.file_size)}</span>
+                        ${result.file_hash ? `<span class="text-xs text-gray-400">SHA256: ${result.file_hash.substring(0, 12)}...</span>` : ''}
+                        ${result.created_at ? `<span class="text-xs text-gray-400">${formatTimestamp(new Date(result.created_at).getTime() / 1000)}</span>` : ''}
+                    </div>
+                </div>
+            </div>
+            <div class="flex items-center space-x-2">
+                ${actionButton}
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * 获取文件图标
+ */
+function getFileIcon(type) {
+    switch (type) {
+        case 'apk': return '📱';
+        case 'log': return '📄';
+        case 'metadata': return '📋';
+        default: return '📁';
+    }
+}
+
+/**
+ * 获取操作按钮
+ */
+function getActionButton(result, type) {
+    if (type === 'apk') {
+        return `
+            <button onclick="downloadBuildResult('${result.id}')"
+                    class="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
+                    title="下载APK">
+                ⬇️ 下载
+            </button>
+            ${result.metadata && result.metadata.package_info ? `
+                <button onclick="showApkInfo('${result.id}')"
+                        class="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
+                        title="查看APK信息">
+                    📋 详情
+                </button>
+            ` : ''}
+        `;
+    } else {
+        return `
+            <button onclick="downloadBuildResult('${result.id}')"
+                    class="px-3 py-1 bg-gray-600 text-white text-sm rounded hover:bg-gray-700 transition-colors"
+                    title="下载文件">
+                ⬇️ 下载
+            </button>
+        `;
+    }
+}
+
+/**
+ * 下载构建结果
+ */
+function downloadBuildResult(fileId) {
+    // 创建下载链接
+    const link = document.createElement('a');
+    link.href = `${API_BASE}/api/results/files/${fileId}/download`;
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    showToast('开始下载文件', 'success');
+}
+
+/**
+ * 显示APK详细信息
+ */
+async function showApkInfo(fileId) {
+    try {
+        showToast('正在加载APK信息...', 'info');
+
+        const response = await fetch(`${API_BASE}/api/results/tasks/${state.buildTaskId}/apks/${fileId}/info`);
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || '获取APK信息失败');
+        }
+
+        const apkInfo = await response.json();
+
+        // 显示详情模态框
+        displayApkDetails(apkInfo);
+        apkElements.modalApkDetails.classList.remove('hidden');
+
+    } catch (error) {
+        console.error('获取APK信息失败:', error);
+        showToast(error.message, 'error');
+    }
 }
 
 /**

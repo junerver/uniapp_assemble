@@ -370,6 +370,65 @@ class ProjectNotFoundError(BaseCustomException):
         super().__init__(message, "PROJECT_NOT_FOUND", details)
 
 
+def handle_service_error(error: Exception, message: str = "Service operation failed") -> HTTPException:
+    """
+    Handle service layer exceptions and convert to HTTPException.
+
+    Args:
+        error: The original exception
+        message: Custom error message
+
+    Returns:
+        HTTPException with appropriate status code and details
+    """
+    logger.error(f"{message}: {str(error)}", exc_info=True)
+
+    # Handle specific custom exceptions
+    if isinstance(error, ValidationError):
+        return create_http_exception(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            message=str(error),
+            error_code="VALIDATION_ERROR"
+        )
+    elif isinstance(error, BuildError):
+        return create_http_exception(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=str(error),
+            error_code="BUILD_ERROR"
+        )
+    elif isinstance(error, DatabaseException):
+        return create_http_exception(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=str(error),
+            error_code="DATABASE_ERROR"
+        )
+    elif isinstance(error, GitException):
+        return create_http_exception(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=str(error),
+            error_code="GIT_ERROR"
+        )
+    elif isinstance(error, GradleException):
+        return create_http_exception(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=str(error),
+            error_code="GRADLE_ERROR"
+        )
+    elif isinstance(error, FileOperationException):
+        return create_http_exception(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=str(error),
+            error_code="FILE_ERROR"
+        )
+    else:
+        # Generic exception
+        return create_http_exception(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            message=f"{message}: {str(error)}",
+            error_code="SERVICE_ERROR"
+        )
+
+
 def setup_exception_handlers(app) -> None:
     """
     Register exception handlers with FastAPI application.

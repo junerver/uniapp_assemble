@@ -15,8 +15,11 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+import hashlib
 
 from ..models.android_project import AndroidProject
+from ..models.build_result import BuildResult, FileType
 from ..utils.exceptions import BuildError, ValidationError
 
 logger = logging.getLogger(__name__)
@@ -470,3 +473,148 @@ class APKService:
         }
 
         return comparison
+
+    async def save_build_results(
+        self,
+        build_task_id: str,
+        apk_analysis_result: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        保存构建结果到数据库。
+
+        Args:
+            build_task_id: 构建任务ID
+            apk_analysis_result: APK分析结果
+
+        Returns:
+            保存结果信息
+        """
+        saved_results = []
+
+        for apk_file in apk_analysis_result.get("apk_files", []):
+            if "error" in apk_file:
+                logger.warning(f"跳过有错误的APK文件: {apk_file.get('file_name')}")
+                continue
+
+            try:
+                # 检查是否已存在相同的结果
+                existing_result = await self.session.execute(
+                    select(BuildResult)
+                    .where(BuildResult.build_task_id == build_task_id)
+                    .where(BuildResult.file_path == apk_file["file_path"])
+                    .where(BuildResult.file_type == FileType.APK)
+                )
+                existing = existing_result.scalars().first()
+
+                if not existing:
+                    # 创建新的构建结果记录
+                    build_result = BuildResult.create_apk_result(
+                        build_task_id=build_task_id,
+                        file_path=apk_file["file_path"],
+                        file_size=apk_file["file_size"],
+                        file_hash=apk_file.get("file_hash", ""),
+                        file_metadata={
+                            "file_name": apk_file["file_name"],
+                            "build_variant": apk_file.get("build_variant"),
+                            "package_info": apk_file.get("package_info"),
+                            "permissions": apk_file.get("permissions", []),
+                            "activities": apk_file.get("activities", []),
+                            "services": apk_file.get("services", []),
+                            "native_libs": apk_file.get("native_libs", []),
+                            "resources": apk_file.get("resources", []),
+                            "manifest_valid": apk_file.get("manifest_valid", False),
+                            "modified_time": apk_file.get("modified_time"),
+                            "analysis": apk_file
+                        }
+                    )
+
+                    self.session.add(build_result)
+                    saved_results.append(build_result.to_dict())
+                    logger.info(f"保存APK构建结果: {apk_file['file_name']}")
+                else:
+                    logger.debug(f"APK构建结果已存在: {apk_file['file_name']}")
+
+            except Exception as e:
+                logger.error(f"保存APK构建结果失败 {apk_file.get('file_name', 'unknown')}: {e}")
+
+        try:
+            await self.session.commit()
+            return {
+                "success": True,
+                "saved_count": len(saved_results),
+                "results": saved_results
+            }
+        except Exception as e:
+            await self.session.rollback()
+            logger.error(f"保存构建结果失败: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "saved_count": 0
+            }
+
+    async def get_build_results(self, build_task_id: str) -> List[Dict[str, Any]]:
+        """
+        获取构建任务的产物信息。
+
+        Args:
+            build_task_id: 构建任务ID
+
+        Returns:
+            构建结果列表
+        """
+        try:
+            result = await self.session.execute(
+                select(BuildResult)
+                .where(BuildResult.build_task_id == build_task_id)
+                .order_by(BuildResult.created_at.desc())
+            )
+            build_results = result.scalars().all()
+            return [build_result.to_dict() for build_result in build_results]
+        except Exception as e:
+            logger.error(f"获取构建结果失败: {e}")
+            return []
+
+    async def get_apk_results(self, build_task_id: str) -> List[Dict[str, Any]]:
+        """
+        获取构建任务的APK文件信息。
+
+        Args:
+            build_task_id: 构建任务ID
+
+        Returns:
+            APK结果列表
+        """
+        try:
+            result = await self.session.execute(
+                select(BuildResult)
+                .where(BuildResult.build_task_id == build_task_id)
+                .where(BuildResult.file_type == FileType.APK)
+                .order_by(BuildResult.created_at.desc())
+            )
+            apk_results = result.scalars().all()
+            return [apk_result.to_dict() for apk_result in apk_results]
+        except Exception as e:
+            logger.error(f"获取APK结果失败: {e}")
+            return []
+
+    async def get_build_result_by_id(self, result_id: str) -> Optional[Dict[str, Any]]:
+        """
+        根据ID获取构建结果。
+
+        Args:
+            result_id: 构建结果ID
+
+        Returns:
+            构建结果信息或None
+        """
+        try:
+            result = await self.session.execute(
+                select(BuildResult)
+                .where(BuildResult.id == result_id)
+            )
+            build_result = result.scalars().first()
+            return build_result.to_dict() if build_result else None
+        except Exception as e:
+            logger.error(f"获取构建结果失败: {e}")
+            return None
