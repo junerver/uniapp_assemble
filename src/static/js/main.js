@@ -629,11 +629,13 @@ function startLogStreaming(taskId) {
                 if (logData.type === 'task_completed') {
                     // 任务完成事件
                     addBuildLog('任务已完成！', 'success');
-                    state.buildStatus = 'success';
+                    state.buildStatus = 'success';  // 立即设置状态,避免error事件误判
+
+                    // 延迟关闭连接,确保所有日志都已接收
                     setTimeout(() => {
                         stopLogStreaming();
                         handleBuildComplete(logData);
-                    }, 1000);
+                    }, 500);  // 减少延迟到500ms
                     return;
                 }
 
@@ -756,18 +758,19 @@ function startLogStreaming(taskId) {
                 const isSuccess = data.status === 'completed' || data.status === 'success';
 
                 if (data.final) {
-                    // 最终完成事件，停止日志流
+                    // 立即设置状态,避免error事件误判为连接中断
+                    state.buildStatus = isSuccess ? 'success' : 'error';
+
+                    // 延迟关闭连接,确保所有日志都已接收
                     setTimeout(() => {
                         stopLogStreaming();
 
                         if (isSuccess) {
-                            state.buildStatus = 'success';
                             handleBuildComplete(data);
                         } else {
-                            state.buildStatus = 'error';
                             handleBuildFailed(data);
                         }
-                    }, 1000); // 延迟1秒确保所有日志都被接收
+                    }, 500); // 减少延迟到500ms
                 }
             } catch (error) {
                 console.error('解析完成事件失败:', error);
