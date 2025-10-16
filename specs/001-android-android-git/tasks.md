@@ -84,18 +84,18 @@ description: "Task list for Android项目资源包替换构建工具 implementat
 
 ### Implementation for User Story 2
 
-- [ ] T024 [P] [US2] Create BuildTask model in `src/models/build_task.py`
-- [ ] T025 [P] [US2] Create BuildLog model in `src/models/build_log.py`
-- [ ] T026 [US2] Implement BuildService for orchestrating builds in `src/services/build_service.py`
-- [ ] T027 [US2] Create Gradle build executor in `src/utils/gradle_utils.py`
-- [ ] T028 [US2] Implement Git safety checks in `src/utils/git_utils.py` (extends T019)
-- [ ] T029 [US2] Create build management API endpoints in `src/api/builds.py`
-- [ ] T030 [US2] Implement WebSocket for real-time build logs in `src/api/websocket.py`
-- [ ] T031 [US2] Add build progress tracking and status updates
-- [ ] T032 [US2] Create resource replacement logic in `src/services/resource_service.py`
-- [ ] T033 [US2] Integrate build workflow with AndroidProjectService
-- [ ] T034 [US2] Add build control UI elements to frontend in `src/templates/index.html`
-- [ ] T035 [US2] Implement real-time log display in frontend JavaScript
+- [x] T024 [P] [US2] Create BuildTask model in `src/models/build_task.py`
+- [x] T025 [P] [US2] Create BuildLog model in `src/models/build_log.py`
+- [x] T026 [US2] Implement BuildService for orchestrating builds in `src/services/build_service.py`
+- [x] T027 [US2] Create Gradle build executor in `src/utils/gradle_utils.py`
+- [x] T028 [US2] Implement Git safety checks in `src/utils/git_utils.py` (extends T019)
+- [x] T029 [US2] Create build management API endpoints in `src/api/builds.py`
+- [x] T030 [US2] Implement WebSocket for real-time build logs in `src/api/websocket.py`
+- [x] T031 [US2] Add build progress tracking and status updates
+- [x] T032 [US2] Create resource replacement logic in `src/services/resource_service.py`
+- [x] T033 [US2] Integrate build workflow with AndroidProjectService
+- [x] T034 [US2] Add build control UI elements to frontend in `src/templates/index.html`
+- [x] T035 [US2] Implement real-time log display in frontend JavaScript
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
 
