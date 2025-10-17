@@ -1359,6 +1359,42 @@ class GitService:
             logger.error(f"切换分支操作失败: {e}")
             raise BuildError(f"切换分支失败: {str(e)}")
 
+    async def get_branch_list(self, project_id: str) -> List[str]:
+        """
+        获取Git分支列表。
+
+        Args:
+            project_id: 项目ID
+
+        Returns:
+            分支名称列表
+
+        Raises:
+            ValidationError: 项目不存在或不是有效的Git仓库
+            BuildError: 获取分支列表失败
+        """
+        try:
+            # 获取项目信息
+            project = await self._get_project(project_id)
+            project_path = Path(project.path)
+
+            # 验证Git仓库
+            if not GitUtils.is_git_repository(project_path):
+                raise ValidationError(f"项目路径不是有效的Git仓库: {project_path}")
+
+            # 获取所有本地分支
+            branches = GitUtils.get_all_branches(project_path, include_remote=False)
+
+            logger.info(f"获取分支列表成功: {project_id}, 分支数: {len(branches)}")
+            return branches
+
+        except ValueError as e:
+            # 重新抛出ValidationError
+            raise
+        except Exception as e:
+            logger.error(f"获取分支列表失败: {e}")
+            raise BuildError(f"获取分支列表失败: {str(e)}")
+
     async def delete_backup(self, backup_id: str) -> bool:
         """
         删除指定的备份。

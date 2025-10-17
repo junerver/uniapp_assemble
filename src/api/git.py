@@ -429,6 +429,36 @@ async def get_repository_status(
         raise HTTPException(status_code=500, detail=f"获取仓库状态失败: {str(e)}")
 
 
+@router.get("/projects/{project_id}/branches", summary="获取Git分支列表")
+async def get_branch_list(
+    project_id: str = Path(..., description="项目ID"),
+    db: AsyncSession = Depends(get_async_session)
+) -> Dict[str, Any]:
+    """
+    获取指定项目的Git分支列表。
+
+    - **project_id**: 项目唯一标识符
+    """
+    try:
+        git_service = GitService(db)
+
+        branches = await git_service.get_branch_list(project_id)
+
+        return {
+            "success": True,
+            "data": {
+                "branches": branches,
+                "total_count": len(branches),
+                "project_id": project_id
+            }
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取分支列表失败: {str(e)}")
+
+
 @router.get("/projects/{project_id}/commits", summary="获取提交历史")
 async def get_commit_history(
     project_id: str = Path(..., description="项目ID"),

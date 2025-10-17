@@ -200,6 +200,12 @@ async function loadBranches(projectId) {
             await loadResourcePackages(state.currentProject.id, data.current_branch);
         }
 
+        // 同步Git分支选择并刷新提交历史（用于回滚）
+        if (branches.length > 0) {
+            await loadGitBranches();
+            await loadCommitHistory();
+        }
+
     } catch (error) {
         console.error('加载分支失败:', error);
         elements.branchSelect.innerHTML = '<option value="">-- 加载失败 --</option>';
@@ -2188,30 +2194,6 @@ function displayComparisonResult(comparison) {
     resultDiv.classList.remove('hidden');
 }
 
-/**
- * 将字符串编码为Base64
- */
-function encodeBase64(str) {
-    try {
-        // 使用浏览器内置的Base64编码
-        return btoa(unescape(encodeURIComponent(str)));
-    } catch (error) {
-        console.error('Base64编码失败:', error);
-        return null;
-    }
-}
-
-/**
- * 将Base64字符串解码为原始字符串
- */
-function decodeBase64(encodedStr) {
-    try {
-        return decodeURIComponent(escape(atob(encodedStr)));
-    } catch (error) {
-        console.error('Base64解码失败:', error);
-        return null;
-    }
-}
 
 /**
  * 下载APK文件（接收Base64编码的路径）
@@ -2325,7 +2307,6 @@ function initApkEventListeners() {
 // Git相关状态
 const gitState = {
     operationHistory: [],
-    backupList: [],
     currentBranches: [],
     gitStatus: null
 };
@@ -2340,19 +2321,14 @@ const gitElements = {
     gitWorkspaceStatus: document.getElementById('git-workspace-status'),
     gitCurrentBranch: document.getElementById('git-current-branch'),
     gitStagedFiles: document.getElementById('git-staged-files'),
-    gitBackupCount: document.getElementById('git-backup-count'),
-
     // 提交操作
     gitCommitMessage: document.getElementById('git-commit-message'),
-    gitCommitBackup: document.getElementById('git-commit-backup'),
-    gitBackupDays: document.getElementById('git-backup-days'),
     btnGitCommit: document.getElementById('btn-git-commit'),
     btnGitStageAll: document.getElementById('btn-git-stage-all'),
     btnGitUnstageAll: document.getElementById('btn-git-unstage-all'),
 
     // 回滚操作
     gitRollbackCommit: document.getElementById('git-rollback-commit'),
-    gitRollbackBackup: document.getElementById('git-rollback-backup'),
     btnGitRollback: document.getElementById('btn-git-rollback'),
 
     // 分支操作
@@ -2360,12 +2336,6 @@ const gitElements = {
     gitBranchSource: document.getElementById('git-branch-source'),
     btnGitCreateBranch: document.getElementById('btn-git-create-branch'),
     btnGitSwitchBranch: document.getElementById('btn-git-switch-branch'),
-
-    // 备份管理
-    gitBackupList: document.getElementById('git-backup-list'),
-    btnRefreshBackups: document.getElementById('btn-refresh-backups'),
-    btnGitCreateBackup: document.getElementById('btn-git-create-backup'),
-    btnGitCleanupBackups: document.getElementById('btn-git-cleanup-backups'),
 
     // 操作历史
     gitHistoryFilter: document.getElementById('git-history-filter'),
@@ -2377,14 +2347,7 @@ const gitElements = {
     btnCloseGitModal: document.getElementById('btn-close-git-modal'),
     gitOperationDetailsContent: document.getElementById('git-operation-details-content'),
 
-    // Git备份恢复模态框
-    modalGitBackupRestore: document.getElementById('modal-git-backup-restore'),
-    btnCloseBackupModal: document.getElementById('btn-close-backup-modal'),
-    backupRestoreInfo: document.getElementById('backup-restore-info'),
-    confirmBackupRestore: document.getElementById('confirm-backup-restore'),
-    btnCancelBackupRestore: document.getElementById('btn-cancel-backup-restore'),
-    btnConfirmBackupRestore: document.getElementById('btn-confirm-backup-restore')
-};
+    };
 
 /**
  * 检查Git仓库状态
@@ -2414,9 +2377,6 @@ async function checkGitStatus() {
 
         // 加载操作历史
         await loadGitOperationHistory();
-
-        // 加载备份列表
-        await loadGitBackupList();
 
         // 先加载分支列表（用于分支操作），以便提交历史按正确分支过滤
         await loadGitBranches();
@@ -2708,224 +2668,56 @@ function displayGitOperationDetails(operation) {
             </div>
         ` : ''}
 
-        ${operation.repository_backups && operation.repository_backups.length > 0 ? `
-            <!-- 相关备份 -->
-            <div class="bg-orange-50 rounded-lg p-4">
-                <h4 class="text-lg font-semibold text-gray-900 mb-3">相关备份 (${operation.repository_backups.length})</h4>
-                <div class="space-y-2">
-                    ${operation.repository_backups.map(backup => `
-                        <div class="flex items-center justify-between text-sm">
-                            <div>
-                                <span class="text-gray-700">${backup.backup_type} - ${backup.description || '无描述'}</span>
-                                <span class="text-gray-500 ml-2">${formatFileSize(backup.backup_size || 0)}</span>
-                            </div>
-                            <button onclick="showGitBackupDetails('${backup.id}')" class="text-blue-600 hover:text-blue-800">
-                                查看详情
-                            </button>
-                        </div>
-                    `).join('')}
-                </div>
-            </div>
-        ` : ''}
-    `;
+      `;
 }
 
 /**
- * 加载Git备份列表
+ * 加载Git分支列表
  */
-async function loadGitBackupList() {
+async function loadGitBranches() {
     if (!state.currentProject) return;
 
     try {
-        const response = await fetch(`${API_BASE}/api/git/projects/${state.currentProject.id}/backups?limit=10`);
+        const response = await fetch(`${API_BASE}/api/git/projects/${state.currentProject.id}/branches`);
 
         if (!response.ok) {
-            throw new Error('加载备份列表失败');
+            throw new Error('加载Git分支失败');
         }
 
         const data = await response.json();
-        gitState.backupList = data.data.backups || [];
+        gitState.currentBranches = data.data?.branches || [];
 
-        // 更新备份计数
-        gitElements.gitBackupCount.textContent = gitState.backupList.length;
+        // 更新分支选择器
+        updateGitBranchSelectors();
 
-        // 更新备份列表显示
-        displayGitBackupList();
+        // 启用Git操作按钮
+        enableGitOperations();
 
     } catch (error) {
-        console.error('加载Git备份列表失败:', error);
+        console.error('加载Git分支失败:', error);
     }
 }
 
 /**
- * 显示Git备份列表
+ * 更新Git分支选择器
  */
-function displayGitBackupList() {
-    const backupListContainer = gitElements.gitBackupList;
+function updateGitBranchSelectors() {
+    // 更新分支源选择器
+    const branchSource = gitElements.gitBranchSource;
+    if (branchSource) {
+        const currentValue = branchSource.value;
+        branchSource.innerHTML = '<option value="">选择源分支</option>';
 
-    if (gitState.backupList.length === 0) {
-        backupListContainer.innerHTML = '<p class="text-sm text-gray-500 text-center">暂无备份</p>';
-        return;
-    }
-
-    backupListContainer.innerHTML = '';
-
-    gitState.backupList.forEach(backup => {
-        const backupItem = createGitBackupItem(backup);
-        backupListContainer.appendChild(backupItem);
-    });
-}
-
-/**
- * 创建Git备份项
- */
-function createGitBackupItem(backup) {
-    const item = document.createElement('div');
-    item.className = 'p-2 bg-gray-50 rounded hover:bg-gray-100 transition-colors';
-
-    const backupTime = formatTimestamp(new Date(backup.created_at).getTime() / 1000);
-    const backupType = backup.backup_type === 'full' ? '完整' : '快照';
-
-    item.innerHTML = `
-        <div class="flex items-center justify-between">
-            <div class="flex-1">
-                <div class="text-xs font-medium text-gray-900">${backupType}备份</div>
-                <div class="text-xs text-gray-500">${backupTime}</div>
-                ${backup.description ? `<div class="text-xs text-gray-600">${backup.description}</div>` : ''}
-            </div>
-            <div class="flex space-x-1">
-                <button onclick="showGitBackupDetails('${backup.id}')" class="text-blue-600 hover:text-blue-800 text-xs">
-                    📋
-                </button>
-                <button onclick="showGitBackupRestore('${backup.id}')" class="text-green-600 hover:text-green-800 text-xs">
-                    🔙
-                </button>
-                <button onclick="deleteGitBackup('${backup.id}')" class="text-red-600 hover:text-red-800 text-xs">
-                    🗑️
-                </button>
-            </div>
-        </div>
-    `;
-
-    return item;
-}
-
-/**
- * 显示Git备份详情
- */
-async function showGitBackupDetails(backupId) {
-    // 这里可以扩展显示备份的详细信息
-    showGitOperationDetails(backupId);
-}
-
-/**
- * 显示Git备份恢复确认
- */
-async function showGitBackupRestore(backupId) {
-    const backup = gitState.backupList.find(b => b.id === backupId);
-    if (!backup) {
-        showToast('备份不存在', 'error');
-        return;
-    }
-
-    // 显示备份信息
-    const backupInfo = gitElements.backupRestoreInfo;
-    const backupTime = formatTimestamp(new Date(backup.created_at).getTime() / 1000);
-    const backupType = backup.backup_type === 'full' ? '完整' : '快照';
-
-    backupInfo.innerHTML = `
-        <div class="space-y-2 text-sm">
-            <div><strong>备份类型:</strong> ${backupType}备份</div>
-            <div><strong>创建时间:</strong> ${backupTime}</div>
-            <div><strong>分支:</strong> ${backup.branch_name || '未知'}</div>
-            <div><strong>提交哈希:</strong> <span class="font-mono">${backup.commit_hash || '未知'}</span></div>
-            <div><strong>文件数量:</strong> ${backup.tracked_files_count || 0}</div>
-            <div><strong>备份大小:</strong> ${formatFileSize(backup.backup_size || 0)}</div>
-            ${backup.description ? `<div><strong>描述:</strong> ${backup.description}</div>` : ''}
-        </div>
-    `;
-
-    // 显示模态框
-    gitElements.modalGitBackupRestore.classList.remove('hidden');
-
-    // 绑定确认按钮事件
-    gitElements.btnConfirmBackupRestore.onclick = () => confirmGitBackupRestore(backupId);
-}
-
-/**
- * 确认Git备份恢复
- */
-async function confirmGitBackupRestore(backupId) {
-    if (!gitElements.confirmBackupRestore.checked) {
-        showToast('请确认您理解此操作的风险', 'warning');
-        return;
-    }
-
-    try {
-        gitElements.btnConfirmBackupRestore.disabled = true;
-        gitElements.btnConfirmBackupRestore.textContent = '🔄 恢复中...';
-
-        const response = await fetch(`${API_BASE}/api/git/backups/${backupId}/restore`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                confirm_restore: true
-            })
+        gitState.currentBranches.forEach(branch => {
+            const option = document.createElement('option');
+            option.value = branch;
+            option.textContent = branch;
+            if (branch === currentValue) option.selected = true;
+            branchSource.appendChild(option);
         });
 
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || '恢复备份失败');
-        }
-
-        const result = await response.json();
-
-        showToast('备份恢复成功', 'success');
-
-        // 关闭模态框
-        gitElements.modalGitBackupRestore.classList.add('hidden');
-        gitElements.confirmBackupRestore.checked = false;
-
-        // 重新检查Git状态
-        await checkGitStatus();
-
-    } catch (error) {
-        console.error('恢复Git备份失败:', error);
-        showToast(error.message, 'error');
-    } finally {
-        gitElements.btnConfirmBackupRestore.disabled = false;
-        gitElements.btnConfirmBackupRestore.textContent = '🔙 确认恢复';
-    }
-}
-
-/**
- * 删除Git备份
- */
-async function deleteGitBackup(backupId) {
-    if (!confirm('确定要删除此备份吗？此操作不可恢复！')) {
-        return;
-    }
-
-    try {
-        const response = await fetch(`${API_BASE}/api/git/backups/${backupId}`, {
-            method: 'DELETE'
-        });
-
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || '删除备份失败');
-        }
-
-        showToast('备份删除成功', 'success');
-
-        // 重新加载备份列表
-        await loadGitBackupList();
-
-    } catch (error) {
-        console.error('删除Git备份失败:', error);
-        showToast(error.message, 'error');
+        // 确保下拉框是启用的
+        branchSource.disabled = false;
     }
 }
 
@@ -2936,21 +2728,18 @@ async function loadCommitHistory() {
     if (!state.currentProject) return;
 
     try {
-        const branchFromGitSelect = gitElements.gitBranchSource && gitElements.gitBranchSource.value ? gitElements.gitBranchSource.value : null;
-        const preferredBranch = branchFromGitSelect || state.currentBranch || '';
-        const branchParam = preferredBranch ? `&branch=${encodeURIComponent(preferredBranch)}` : '';
-        const response = await fetch(`${API_BASE}/api/git/projects/${state.currentProject.id}/commits?limit=20${branchParam}`);
+        const branch = gitElements.gitBranchSource?.value || state.currentBranch;
+        const response = await fetch(`${API_BASE}/api/git/projects/${state.currentProject.id}/commits?branch=${encodeURIComponent(branch)}&limit=50`);
 
         if (!response.ok) {
-            // 可能不是Git仓库，忽略错误
-            return;
+            throw new Error('加载提交历史失败');
         }
 
         const data = await response.json();
-        const commits = data.data.commits || [];
+        const commits = data.data?.commits || [];
 
-        // 更新回滚选择框
-        updateRollbackCommitSelect(commits);
+        // 更新回滚提交选择器
+        updateRollbackCommitSelector(commits);
 
     } catch (error) {
         console.error('加载提交历史失败:', error);
@@ -2958,85 +2747,25 @@ async function loadCommitHistory() {
 }
 
 /**
- * 更新回滚提交选择框
+ * 更新回滚提交选择器
  */
-function updateRollbackCommitSelect(commits) {
-    const select = gitElements.gitRollbackCommit;
+function updateRollbackCommitSelector(commits) {
+    const rollbackCommit = gitElements.gitRollbackCommit;
+    if (rollbackCommit) {
+        const currentValue = rollbackCommit.value;
+        rollbackCommit.innerHTML = '<option value="">选择回滚到</option>';
 
-    // 清空并重新填充
-    select.innerHTML = '<option value="">选择要回滚到的提交</option>';
+        commits.forEach(commit => {
+            const option = document.createElement('option');
+            option.value = commit.hash;
+            option.textContent = `${commit.hash.substring(0, 8)} - ${commit.message.substring(0, 50)}`;
+            if (commit.hash === currentValue) option.selected = true;
+            rollbackCommit.appendChild(option);
+        });
 
-    commits.forEach(commit => {
-        // 兼容后端返回的字段：sha/short_sha/message
-        const sha = commit.sha || commit.hash || '';
-        const shortSha = commit.short_sha || (sha ? sha.substring(0, 8) : '');
-        const message = (commit.message || '').toString();
-
-        // 跳过无有效sha的记录，避免生成不可用选项
-        if (!sha) return;
-
-        const option = document.createElement('option');
-        option.value = sha;
-        option.textContent = `${shortSha} - ${message.substring(0, 50)}${message.length > 50 ? '...' : ''}`;
-        select.appendChild(option);
-    });
-
-    // 启用选择框
-    select.disabled = commits.length === 0;
-}
-
-/**
- * 加载Git分支列表
- */
-async function loadGitBranches() {
-    if (!state.currentProject) return;
-
-    try {
-        const response = await fetch(`${API_BASE}/api/projects/${state.currentProject.id}/branches`);
-
-        if (!response.ok) {
-            // 可能不是Git仓库，忽略错误
-            return;
-        }
-
-        const data = await response.json();
-        const branches = data.branches || [];
-        // 优先使用项目选择的分支，其次使用仓库当前分支
-        const currentBranch = state.currentBranch || data.current_branch;
-
-        // 更新分支选择框
-        updateBranchSelect(branches, currentBranch);
-
-    } catch (error) {
-        console.error('加载Git分支失败:', error);
+        // 确保下拉框是启用的
+        rollbackCommit.disabled = false;
     }
-}
-
-/**
- * 更新分支选择框
- */
-function updateBranchSelect(branches, currentBranch) {
-    const select = gitElements.gitBranchSource;
-
-    // 清空并重新填充
-    select.innerHTML = '<option value="">当前分支</option>';
-
-    branches.forEach(branch => {
-        const option = document.createElement('option');
-        option.value = branch;
-        option.textContent = branch;
-
-        // 标记当前分支
-        if (branch === currentBranch) {
-            option.textContent += ' (当前)';
-            option.selected = true;
-        }
-
-        select.appendChild(option);
-    });
-
-    // 启用选择框
-    select.disabled = branches.length === 0;
 }
 
 /**
@@ -3050,7 +2779,7 @@ async function executeGitCommit() {
 
     const commitMessage = gitElements.gitCommitMessage.value.trim();
     if (!commitMessage) {
-        showToast('请输入提交消息', 'warning');
+        showToast('请输入提交信息', 'warning');
         return;
     }
 
@@ -3058,18 +2787,15 @@ async function executeGitCommit() {
         gitElements.btnGitCommit.disabled = true;
         gitElements.btnGitCommit.textContent = '🔄 提交中...';
 
-        const requestData = {
-            commit_message: commitMessage,
-            create_backup: gitElements.gitCommitBackup.checked,
-            backup_expiry_days: parseInt(gitElements.gitBackupDays.value)
-        };
-
         const response = await fetch(`${API_BASE}/api/git/projects/${state.currentProject.id}/commit`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(requestData)
+            body: JSON.stringify({
+                message: commitMessage,
+                include_staged: true
+            })
         });
 
         if (!response.ok) {
@@ -3078,10 +2804,9 @@ async function executeGitCommit() {
         }
 
         const result = await response.json();
+        showToast('Git提交成功！', 'success');
 
-        showToast('Git提交成功', 'success');
-
-        // 清空提交消息
+        // 清空提交信息
         gitElements.gitCommitMessage.value = '';
 
         // 重新检查Git状态
@@ -3111,7 +2836,7 @@ async function executeGitRollback() {
         return;
     }
 
-    if (!confirm(`确定要回滚到提交 ${targetCommit.substring(0, 8)} 吗？此操作将丢弃当前分支的所有后续提交！`)) {
+    if (!confirm('确定要回滚到选定的提交吗？此操作将创建新的提交来撤销更改。')) {
         return;
     }
 
@@ -3119,17 +2844,15 @@ async function executeGitRollback() {
         gitElements.btnGitRollback.disabled = true;
         gitElements.btnGitRollback.textContent = '🔄 回滚中...';
 
-        const requestData = {
-            target_commit_hash: targetCommit,
-            create_backup: gitElements.gitRollbackBackup.checked
-        };
-
         const response = await fetch(`${API_BASE}/api/git/projects/${state.currentProject.id}/rollback`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(requestData)
+            body: JSON.stringify({
+                target_commit: targetCommit,
+                create_backup: true
+            })
         });
 
         if (!response.ok) {
@@ -3138,8 +2861,7 @@ async function executeGitRollback() {
         }
 
         const result = await response.json();
-
-        showToast('Git回滚成功', 'success');
+        showToast('Git回滚成功！', 'success');
 
         // 重新检查Git状态
         await checkGitStatus();
@@ -3149,7 +2871,7 @@ async function executeGitRollback() {
         showToast(error.message, 'error');
     } finally {
         gitElements.btnGitRollback.disabled = false;
-        gitElements.btnGitRollback.textContent = '⏮️ 回滚到选中提交';
+        gitElements.btnGitRollback.textContent = '⏮️ 回滚';
     }
 }
 
@@ -3176,9 +2898,7 @@ async function createGitBranch() {
 
         const requestData = {
             branch_name: branchName,
-            source_branch: sourceBranch || null,
-            create_backup: true, // 默认创建备份
-            backup_expiry_days: 30
+            source_branch: sourceBranch || null
         };
 
         const response = await fetch(`${API_BASE}/api/git/projects/${state.currentProject.id}/branches/${encodeURIComponent(branchName)}/create`, {
@@ -3214,75 +2934,6 @@ async function createGitBranch() {
 }
 
 /**
- * 清理过期备份
- */
-async function cleanupExpiredBackups() {
-    if (!state.currentProject) {
-        showToast('请先选择项目', 'warning');
-        return;
-    }
-
-    if (!confirm('确定要清理所有过期备份吗？此操作不可恢复！')) {
-        return;
-    }
-
-    try {
-        gitElements.btnGitCleanupBackups.disabled = true;
-        gitElements.btnGitCleanupBackups.textContent = '🔄 清理中...';
-
-        const response = await fetch(`${API_BASE}/api/git/projects/${state.currentProject.id}/backups/cleanup`, {
-            method: 'POST'
-        });
-
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || '清理过期备份失败');
-        }
-
-        const result = await response.json();
-
-        showToast(`已清理 ${result.data.deleted_count} 个过期备份`, 'success');
-
-        // 重新加载备份列表
-        await loadGitBackupList();
-
-    } catch (error) {
-        console.error('清理过期备份失败:', error);
-        showToast(error.message, 'error');
-    } finally {
-        gitElements.btnGitCleanupBackups.disabled = false;
-        gitElements.btnGitCleanupBackups.textContent = '🗑️ 清理过期';
-    }
-}
-
-/**
- * 创建手动备份
- */
-async function createManualBackup() {
-    if (!state.currentProject) {
-        showToast('请先选择项目', 'warning');
-        return;
-    }
-
-    try {
-        gitElements.btnGitCreateBackup.disabled = true;
-        gitElements.btnGitCreateBackup.textContent = '🔄 备份中...';
-
-        // 这里可以调用创建备份的API（如果有的话）
-        // 或者调用提交API但不实际提交，只创建备份
-
-        showToast('手动备份功能开发中...', 'info');
-
-    } catch (error) {
-        console.error('创建手动备份失败:', error);
-        showToast(error.message, 'error');
-    } finally {
-        gitElements.btnGitCreateBackup.disabled = false;
-        gitElements.btnGitCreateBackup.textContent = '💾 创建备份';
-    }
-}
-
-/**
  * 启用Git操作按钮
  */
 function enableGitOperations() {
@@ -3290,17 +2941,14 @@ function enableGitOperations() {
     gitElements.btnGitStageAll.disabled = false;
     gitElements.btnGitUnstageAll.disabled = false;
 
-    // 回滚相关按钮
+    // 回滚相关按钮和下拉框
     gitElements.btnGitRollback.disabled = false;
+    gitElements.gitRollbackCommit.disabled = false;
 
-    // 分支相关按钮
+    // 分支相关按钮和下拉框
     gitElements.btnGitCreateBranch.disabled = false;
     gitElements.btnGitSwitchBranch.disabled = false;
-
-    // 备份相关按钮
-    gitElements.btnRefreshBackups.disabled = false;
-    gitElements.btnGitCreateBackup.disabled = false;
-    gitElements.btnGitCleanupBackups.disabled = false;
+    gitElements.gitBranchSource.disabled = false;
 
     // 历史相关按钮
     gitElements.btnRefreshHistory.disabled = false;
@@ -3310,16 +2958,13 @@ function enableGitOperations() {
  * 禁用Git操作按钮
  */
 function disableGitOperations() {
-    // 禁用所有Git操作按钮
+    // 禁用所有Git操作按钮（除了状态检查按钮）
     gitElements.btnGitStageAll.disabled = true;
     gitElements.btnGitUnstageAll.disabled = true;
     gitElements.btnGitCommit.disabled = true;
     gitElements.btnGitRollback.disabled = true;
     gitElements.btnGitCreateBranch.disabled = true;
     gitElements.btnGitSwitchBranch.disabled = true;
-    gitElements.btnRefreshBackups.disabled = true;
-    gitElements.btnGitCreateBackup.disabled = true;
-    gitElements.btnGitCleanupBackups.disabled = true;
     gitElements.btnRefreshHistory.disabled = true;
 
     // 禁用选择框
@@ -3371,11 +3016,7 @@ function initGitEventListeners() {
         loadCommitHistory();
     });
 
-    // 备份操作
-    gitElements.btnRefreshBackups.addEventListener('click', loadGitBackupList);
-    gitElements.btnGitCreateBackup.addEventListener('click', createManualBackup);
-    gitElements.btnGitCleanupBackups.addEventListener('click', cleanupExpiredBackups);
-
+  
     // 历史操作
     gitElements.btnRefreshHistory.addEventListener('click', () => {
         const filterType = gitElements.gitHistoryFilter.value;
@@ -3390,21 +3031,6 @@ function initGitEventListeners() {
     // 模态框关闭事件
     gitElements.btnCloseGitModal.addEventListener('click', () => {
         gitElements.modalGitOperationDetails.classList.add('hidden');
-    });
-
-    gitElements.btnCloseBackupModal.addEventListener('click', () => {
-        gitElements.modalGitBackupRestore.classList.add('hidden');
-        gitElements.confirmBackupRestore.checked = false;
-    });
-
-    gitElements.btnCancelBackupRestore.addEventListener('click', () => {
-        gitElements.modalGitBackupRestore.classList.add('hidden');
-        gitElements.confirmBackupRestore.checked = false;
-    });
-
-    // 备份恢复确认复选框
-    gitElements.confirmBackupRestore.addEventListener('change', (e) => {
-        gitElements.btnConfirmBackupRestore.disabled = !e.target.checked;
     });
 }
 
@@ -3434,3 +3060,35 @@ loadProjectDetails = async function(projectId) {
         gitElements.btnGitStatus.disabled = false;
     }
 };
+
+// ===== Base64编码工具函数 =====
+
+/**
+ * Base64编码字符串
+ * @param {string} str - 要编码的字符串
+ * @returns {string} Base64编码后的字符串
+ */
+function encodeBase64(str) {
+    try {
+        // 使用浏览器内置的Base64编码
+        return btoa(unescape(encodeURIComponent(str)));
+    } catch (error) {
+        console.error('Base64编码失败:', error);
+        return null;
+    }
+}
+
+/**
+ * Base64解码字符串
+ * @param {string} encodedStr - Base64编码的字符串
+ * @returns {string} 解码后的原始字符串
+ */
+function decodeBase64(encodedStr) {
+    try {
+        // 使用浏览器内置的Base64解码
+        return decodeURIComponent(escape(atob(encodedStr)));
+    } catch (error) {
+        console.error('Base64解码失败:', error);
+        return null;
+    }
+}

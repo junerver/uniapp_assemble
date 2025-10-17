@@ -351,7 +351,7 @@
             </div>
 
             <!-- Git状态概览 -->
-            <div id="git-status-overview" class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div id="git-status-overview" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <div class="bg-green-50 rounded-lg p-4">
                     <div class="flex items-center">
                         <div class="flex-shrink-0">
@@ -385,17 +385,6 @@
                         </div>
                     </div>
                 </div>
-                <div class="bg-orange-50 rounded-lg p-4">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0">
-                            <span class="text-orange-600 text-lg">💾</span>
-                        </div>
-                        <div class="ml-3">
-                            <p class="text-sm font-medium text-gray-900">可用备份</p>
-                            <p id="git-backup-count" class="text-sm font-semibold text-orange-600">0</p>
-                        </div>
-                    </div>
-                </div>
             </div>
 
             <!-- Git操作区域 -->
@@ -414,13 +403,7 @@
                                 </label>
                                 <textarea id="git-commit-message" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="描述本次变更的内容..."></textarea>
                             </div>
-                            <div class="flex items-center space-x-2">
-                                <input type="checkbox" id="git-commit-backup" checked class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
-                                <label for="git-commit-backup" class="text-sm text-gray-700">提交前创建备份</label>
-                                <input type="number" id="git-backup-days" value="30" min="1" max="365" class="w-16 px-2 py-1 border border-gray-300 rounded-md text-sm">
-                                <span class="text-sm text-gray-500">天保留</span>
-                            </div>
-                            <div class="flex space-x-2">
+                              <div class="flex space-x-2">
                                 <button id="btn-git-commit" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:bg-gray-400" disabled>
                                     📤 提交
                                 </button>
@@ -448,18 +431,14 @@
                                     <option value="">选择要回滚到的提交</option>
                                 </select>
                             </div>
-                            <div class="flex items-center space-x-2">
-                                <input type="checkbox" id="git-rollback-backup" checked class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
-                                <label for="git-rollback-backup" class="text-sm text-gray-700">回滚前创建备份</label>
-                            </div>
-                            <button id="btn-git-rollback" class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:bg-gray-400" disabled>
+                                <button id="btn-git-rollback" class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:bg-gray-400" disabled>
                                 ⏮️ 回滚到选中提交
                             </button>
                         </div>
                     </div>
                 </div>
 
-                <!-- 右侧：分支和备份管理 -->
+                <!-- 右侧：分支管理 -->
                 <div class="space-y-4">
                     <!-- 分支操作 -->
                     <div class="border border-gray-200 rounded-lg p-4">
@@ -489,32 +468,6 @@
                                 </button>
                                 <button id="btn-git-switch-branch" class="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors disabled:bg-gray-400" disabled>
                                     ↗️ 切换分支
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 备份管理 -->
-                    <div class="border border-gray-200 rounded-lg p-4">
-                        <h3 class="text-lg font-medium text-gray-900 mb-3">
-                            <span class="text-orange-500">💾</span> 备份管理
-                        </h3>
-                        <div class="space-y-3">
-                            <div class="flex justify-between items-center">
-                                <span class="text-sm text-gray-600">可用备份</span>
-                                <button id="btn-refresh-backups" class="text-sm text-blue-600 hover:text-blue-700 disabled:text-gray-400" disabled>
-                                    🔄 刷新
-                                </button>
-                            </div>
-                            <div id="git-backup-list" class="max-h-32 overflow-y-auto border border-gray-200 rounded-md p-2">
-                                <p class="text-sm text-gray-500 text-center">暂无备份</p>
-                            </div>
-                            <div class="flex space-x-2">
-                                <button id="btn-git-create-backup" class="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 transition-colors disabled:bg-gray-400" disabled>
-                                    💾 创建备份
-                                </button>
-                                <button id="btn-git-cleanup-backups" class="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors disabled:bg-gray-400" disabled>
-                                    🗑️ 清理过期
                                 </button>
                             </div>
                         </div>
@@ -566,46 +519,7 @@
         </div>
     </div>
 
-    <!-- Git备份恢复确认模态框 -->
-    <div id="modal-git-backup-restore" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden flex items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-semibold text-gray-900">确认恢复备份</h3>
-                <button id="btn-close-backup-modal" class="text-gray-400 hover:text-gray-600">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                </button>
-            </div>
-
-            <div class="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-md">
-                <p class="text-sm text-yellow-800">
-                    <strong>⚠️ 警告：</strong>恢复备份将覆盖当前仓库的所有变更。此操作不可撤销。
-                </p>
-            </div>
-
-            <div id="backup-restore-info" class="mb-4 p-4 bg-gray-50 rounded-md">
-                <!-- 备份信息将动态插入这里 -->
-            </div>
-
-            <div class="mb-4">
-                <label class="flex items-center">
-                    <input type="checkbox" id="confirm-backup-restore" class="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 rounded">
-                    <span class="ml-2 text-sm text-gray-700">我理解此操作的风险并确认恢复</span>
-                </label>
-            </div>
-
-            <div class="flex justify-end space-x-3">
-                <button id="btn-cancel-backup-restore" class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition-colors">
-                    取消
-                </button>
-                <button id="btn-confirm-backup-restore" class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:bg-gray-400" disabled>
-                    🔙 确认恢复
-                </button>
-            </div>
-        </div>
-    </div>
-
+  
     <!-- 新建项目模态框 -->
     <div id="modal-new-project" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden flex items-center justify-center z-50">
         <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
