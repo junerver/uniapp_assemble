@@ -824,30 +824,49 @@ class BackupManager:
 
 
 # ================================
-# 全局实例
+# 全局实例（延迟初始化）
 # ================================
 
-# 创建全局迁移管理器
-migration_manager = MigrationManager(database_service)
+# 全局迁移管理器（延迟初始化）
+migration_manager = None
 
-# 创建全局备份管理器
-backup_manager = BackupManager(database_service)
+# 全局备份管理器（延迟初始化）
+backup_manager = None
+
+def get_migration_manager():
+    """获取全局迁移管理器实例"""
+    global migration_manager
+    if migration_manager is None:
+        from .database import database_service
+        migration_manager = MigrationManager(database_service)
+    return migration_manager
+
+def get_backup_manager():
+    """获取全局备份管理器实例"""
+    global backup_manager
+    if backup_manager is None:
+        from .database import database_service
+        backup_manager = BackupManager(database_service)
+    return backup_manager
 
 # 导出常用函数
 def migrate_to_latest() -> bool:
     """迁移到最新版本"""
-    success, error_msg = migration_manager.migrate_up()
+    manager = get_migration_manager()
+    success, error_msg = manager.migrate_up()
     if not success:
         logger.error(f"迁移失败: {error_msg}")
     return success
 
 def check_database_health() -> Dict[str, Any]:
     """检查数据库健康状态"""
+    from .database import database_service
     health = database_service.health_check()
 
     # 添加迁移状态
-    current_version = migration_manager.get_current_version()
-    pending_migrations = len(migration_manager.get_pending_migrations())
+    manager = get_migration_manager()
+    current_version = manager.get_current_version()
+    pending_migrations = len(manager.get_pending_migrations())
 
     health.update({
         'migration_version': current_version,

@@ -17,11 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import subprocess
 
-from ..models.android_project import AndroidProject
-from ..models.git_operation import GitOperation, OperationType, OperationStatus
-from ..models.repository_backup import RepositoryBackup, BackupType, BackupStatus
+from database.models import Project, GitOperation as DBGitOperation, SystemMetrics
 from ..utils.git_utils import GitUtils, NotAGitRepositoryError, GitUtilsError
 from ..utils.exceptions import BuildError, ValidationError
+from datetime import datetime
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -364,12 +364,13 @@ class GitService:
                 raise ValidationError(f"项目路径不是有效的Git仓库: {project_path}")
 
             # 创建Git操作记录
-            git_operation = GitOperation.create_commit_operation(
-                project_id=project_id,
-                commit_message=commit_message,
-                files_affected=files_to_commit or [],
+            git_operation = DBGitOperation(
+                project_id=int(project_id),
+                operation_type="commit",
+                status="pending",
                 description=f"安全提交: {commit_message}",
-                config_options={
+                commit_message=commit_message,
+                operation_metadata={
                     "create_backup": create_backup,
                     "backup_expiry_days": backup_expiry_days,
                     "files_to_commit": files_to_commit
@@ -380,7 +381,8 @@ class GitService:
             await self.session.flush()  # 获取ID
 
             # 开始操作
-            git_operation.start()
+            git_operation.status = "in_progress"
+            git_operation.started_at = datetime.utcnow()
             logger.info(f"开始Git提交操作: {git_operation.id}")
 
             result = {
@@ -842,10 +844,10 @@ class GitService:
 
     # 私有辅助方法
 
-    async def _get_project(self, project_id: str) -> AndroidProject:
+    async def _get_project(self, project_id: str) -> Project:
         """获取项目信息。"""
         result = await self.session.execute(
-            select(AndroidProject).where(AndroidProject.id == project_id)
+            select(Project).where(Project.id == int(project_id))
         )
         project = result.scalars().first()
         if not project:
@@ -1274,29 +1276,7 @@ class GitService:
                     "message": f"已经在分支 {branch_name} 上"
                 }
 
-            # 创建Git操作记录
-            git_operation = GitOperation(
-                project_id=project_id,
-                operation_type=OperationType.BRANCH_SWITCH.value,
-                status=OperationStatus.PENDING.value,
-                description=f"切换分支: {current_branch} -> {branch_name}",
-                config_options={
-                    "create_backup": create_backup,
-                    "backup_expiry_days": backup_expiry_days,
-                    "from_branch": current_branch,
-                    "to_branch": branch_name
-                }
-            )
-
-            self.session.add(git_operation)
-            await self.session.flush()
-
-            # 开始操作
-            git_operation.start()
-            logger.info(f"开始切换分支操作: {git_operation.id}")
-
             result = {
-                "operation_id": git_operation.id,
                 "project_id": project_id,
                 "from_branch": current_branch,
                 "to_branch": branch_name,
@@ -1304,25 +1284,23 @@ class GitService:
                 "steps": []
             }
 
-            # 步骤1: 获取当前状态
-            repo_info_before = GitUtils.get_repository_info(project_path)
-            git_operation.commit_hash_before = repo_info_before.get("latest_commit", {}).get("sha")
-
-            # 步骤2: 创建备份（如果需要）
+            # 步骤1: 创建备份（如果需要）
             backup_info = None
             if create_backup:
-                backup_info = await self._create_operation_backup(
-                    project_id, git_operation.id, project_path,
-                    repo_info_before.get("latest_commit", {}).get("sha"),
-                    current_branch
-                )
+                backup_name = f"branch-switch-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
+                backup_result = GitUtils.create_backup(project_path, backup_name)
+                if backup_result.get("success"):
+                    backup_info = {
+                        "backup_path": backup_result["backup_path"],
+                        "backup_name": backup_name
+                    }
                 result["steps"].append({
                     "step": "backup_creation",
                     "status": "completed" if backup_info else "skipped",
                     "data": backup_info
                 })
 
-            # 步骤3: 执行分支切换
+            # 步骤2: 执行分支切换
             switch_success = await GitUtils.switch_branch(project_path, branch_name)
             if not switch_success:
                 raise GitUtilsError(f"切换分支失败: {branch_name}")
@@ -1333,30 +1311,14 @@ class GitService:
                 "data": {"branch": branch_name}
             })
 
-            # 完成操作
-            git_operation.complete(
-                result_data={
-                    "backup_info": backup_info,
-                    "from_branch": current_branch,
-                    "to_branch": branch_name
-                }
-            )
-
-            await self.session.commit()
-
             result["status"] = "completed"
             result["backup_info"] = backup_info
 
-            logger.info(f"切换分支操作完成: {git_operation.id}, {current_branch} -> {branch_name}")
+            logger.info(f"切换分支完成: {current_branch} -> {branch_name}")
             return result
 
         except Exception as e:
-            # 回滚操作状态
-            if 'git_operation' in locals():
-                git_operation.fail(str(e))
-                await self.session.commit()
-
-            logger.error(f"切换分支操作失败: {e}")
+            logger.error(f"切换分支失败: {e}")
             raise BuildError(f"切换分支失败: {str(e)}")
 
     async def get_branch_list(self, project_id: str) -> List[str]:

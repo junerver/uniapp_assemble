@@ -61,12 +61,11 @@ const elements = {
  */
 function showToast(message, type = 'info') {
     const toast = document.createElement('div');
-    toast.className = `px-6 py-4 rounded-lg shadow-lg text-white transform transition-all duration-300 ${
-        type === 'success' ? 'bg-green-500' :
-        type === 'error' ? 'bg-red-500' :
-        type === 'warning' ? 'bg-yellow-500' :
-        'bg-blue-500'
-    }`;
+    toast.className = `px-6 py-4 rounded-lg shadow-lg text-white transform transition-all duration-300 ${type === 'success' ? 'bg-green-500' :
+            type === 'error' ? 'bg-red-500' :
+                type === 'warning' ? 'bg-yellow-500' :
+                    'bg-blue-500'
+        }`;
     toast.textContent = message;
 
     elements.toastContainer.appendChild(toast);
@@ -902,7 +901,7 @@ function handleBuildComplete(result) {
                     ${result.build_time ? `<p>⏱️ 构建时间: ${result.build_time}秒</p>` : ''}
                     ${result.artifacts ? `<p>📦 构建产物: ${result.artifacts.length} 个</p>` : ''}
                     ${result.artifacts && result.artifacts.length > 0 ?
-                        `<div class="mt-2">
+                `<div class="mt-2">
                             <p class="font-medium">生成的文件:</p>
                             <ul class="list-disc list-inside text-xs">
                                 ${result.artifacts.map(artifact => `<li>${artifact.name || artifact}</li>`).join('')}
@@ -2116,7 +2115,7 @@ function displayComparisonResult(comparison) {
                     <span class="text-gray-600">大小差异:</span>
                     <span class="text-gray-900 ml-2">${formatFileSize(Math.abs(comparison.differences.size_diff))}</span>
                     ${comparison.differences.size_diff !== 0 ?
-                        (comparison.differences.size_diff > 0 ? ' (文件2更大)' : ' (文件1更大)') : ''}
+            (comparison.differences.size_diff > 0 ? ' (文件2更大)' : ' (文件1更大)') : ''}
                 </div>
                 <div>
                     <span class="text-gray-600">构建变体:</span>
@@ -2347,7 +2346,7 @@ const gitElements = {
     btnCloseGitModal: document.getElementById('btn-close-git-modal'),
     gitOperationDetailsContent: document.getElementById('git-operation-details-content'),
 
-    };
+};
 
 /**
  * 检查Git仓库状态
@@ -2934,6 +2933,97 @@ async function createGitBranch() {
 }
 
 /**
+ * 执行Git分支切换
+ */
+async function executeGitSwitchBranch() {
+    if (!state.currentProject) {
+        showToast('请先选择项目', 'warning');
+        return;
+    }
+
+    const targetBranch = gitElements.gitBranchSource.value;
+    if (!targetBranch) {
+        showToast('请选择要切换到的分支', 'warning');
+        return;
+    }
+
+    // 检查是否已经在目标分支上
+    if (targetBranch === state.currentBranch) {
+        showToast(`已经在分支 '${targetBranch}' 上`, 'info');
+        return;
+    }
+
+    // 确认切换操作
+    const confirmMessage = `确定要切换到分支 '${targetBranch}' 吗？\n\n切换前将自动创建备份以确保安全。`;
+    if (!confirm(confirmMessage)) {
+        return;
+    }
+
+    try {
+        gitElements.btnGitSwitchBranch.disabled = true;
+        gitElements.btnGitSwitchBranch.textContent = '🔄 切换中...';
+
+        // 构建API请求URL和参数
+        const url = `${API_BASE}/api/git/projects/${state.currentProject.id}/branches/${encodeURIComponent(targetBranch)}/switch`;
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || '切换分支失败');
+        }
+
+        const result = await response.json();
+
+        showToast(`已成功切换到分支 '${targetBranch}'`, 'success');
+
+        // 更新当前分支状态
+        state.currentBranch = targetBranch;
+
+        // 更新界面上的当前分支显示
+        document.getElementById('info-branch').textContent = targetBranch;
+
+        // 更新分支选择器的选中项
+        const mainBranchSelect = document.getElementById('branch-select');
+        if (mainBranchSelect) {
+            // 找到对应的选项并选中
+            for (let i = 0; i < mainBranchSelect.options.length; i++) {
+                const option = mainBranchSelect.options[i];
+                if (option.value === targetBranch) {
+                    option.selected = true;
+                    break;
+                }
+            }
+        }
+
+        // 重新加载工作区状态
+        await loadWorkspaceStatus(state.currentProject.id);
+
+        // 重新加载当前分支的资源包
+        await loadResourcePackages(state.currentProject.id, targetBranch);
+
+        // 重新加载Git分支列表和提交历史
+        await loadGitBranches();
+        await loadCommitHistory();
+
+        // 重新检查Git状态
+        await checkGitStatus();
+
+    } catch (error) {
+        console.error('切换Git分支失败:', error);
+        showToast(error.message, 'error');
+    } finally {
+        gitElements.btnGitSwitchBranch.disabled = false;
+        gitElements.btnGitSwitchBranch.textContent = '↗️ 切换分支';
+    }
+}
+
+/**
  * 启用Git操作按钮
  */
 function enableGitOperations() {
@@ -3002,9 +3092,7 @@ function initGitEventListeners() {
     // 分支操作
     gitElements.btnGitCreateBranch.addEventListener('click', createGitBranch);
 
-    gitElements.btnGitSwitchBranch.addEventListener('click', () => {
-        showToast('切换分支功能将在Git集成完成后实现', 'info');
-    });
+    gitElements.btnGitSwitchBranch.addEventListener('click', executeGitSwitchBranch);
 
     // 分支源变更时刷新回滚提交选择（按选中分支加载提交历史）
     gitElements.gitBranchSource.addEventListener('change', () => {
@@ -3016,7 +3104,7 @@ function initGitEventListeners() {
         loadCommitHistory();
     });
 
-  
+
     // 历史操作
     gitElements.btnRefreshHistory.addEventListener('click', () => {
         const filterType = gitElements.gitHistoryFilter.value;
@@ -3036,7 +3124,7 @@ function initGitEventListeners() {
 
 // 在现有的initEventListeners函数中添加APK和Git事件监听器
 const originalInitEventListeners = initEventListeners;
-initEventListeners = function() {
+initEventListeners = function () {
     originalInitEventListeners();
     initApkEventListeners();
     initGitEventListeners();
@@ -3044,7 +3132,7 @@ initEventListeners = function() {
 
 // 当项目选择变化时，重置Git操作状态
 const originalLoadProjectDetails = loadProjectDetails;
-loadProjectDetails = async function(projectId) {
+loadProjectDetails = async function (projectId) {
     await originalLoadProjectDetails(projectId);
 
     // 重置Git操作状态

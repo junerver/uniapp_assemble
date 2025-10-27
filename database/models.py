@@ -13,7 +13,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field, validator
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, JSON, ForeignKey, Index
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, JSON, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.sqlite import JSON as SQLiteJSON
@@ -186,7 +186,7 @@ class BuildArtifact(Base):
 
     # 元数据
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
-    metadata = Column(JSON, comment="产物元数据")
+    artifact_metadata = Column(JSON, comment="产物元数据")
 
     # 关系
     build = relationship("Build", back_populates="artifacts")
@@ -285,7 +285,7 @@ class SystemMetrics(Base):
     timestamp = Column(DateTime, default=datetime.utcnow, comment="时间戳")
 
     # 元数据
-    metadata = Column(JSON, comment="指标元数据")
+    metrics_metadata = Column(JSON, comment="指标元数据")
 
     # 索引
     __table_args__ = (
