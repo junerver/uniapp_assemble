@@ -22,7 +22,7 @@
 ```bash
 # 克隆项目
 git clone <repository-url>
-cd govcar_upgrade_uniapp_assemble
+cd uniapp_assemble
 
 # 安装依赖
 pip install -e .

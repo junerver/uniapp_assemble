@@ -12,12 +12,12 @@ if errorlevel 1 (
 )
 
 echo [INFO] Launching FastAPI server...
-start "" /B cmd /c "cd /d ""%~dp0"" && uv run uvicorn src.main:app --reload --host 0.0.0.0 --port 8000"
+start "" /B cmd /c "cd /d ""%~dp0"" && uv run uvicorn src.main:app --reload --host 0.0.0.0 --port 8123"
 
 rem Give the server a moment to start before opening the browser
 timeout /t 3 /nobreak >nul
 
-set "CHROME_URL=http://localhost:8000/"
+set "CHROME_URL=http://localhost:8123/"
 echo [INFO] Opening Chrome at %CHROME_URL%
 
 rem Try the chrome command on PATH first

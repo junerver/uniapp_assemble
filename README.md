@@ -91,7 +91,7 @@ pip install uv
 ```bash
 # 克隆项目
 git clone <repository-url>
-cd govcar_upgrade_uniapp_assemble
+cd uniapp_assemble
 
 # 创建虚拟环境并安装依赖
 uv venv

@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from sqlalchemy import text, func
 from sqlalchemy.orm import Session
 
-from .database import DatabaseService, db_manager
+from .database import DatabaseService, database_service, db_manager
 
 logger = logging.getLogger(__name__)
 
@@ -593,36 +593,32 @@ class StorageOptimizer:
 
     def _setup_compression_tables(self) -> None:
         """设置压缩存储表"""
-        setup_sql = """
-        -- 构建日志压缩数据表
-        CREATE TABLE IF NOT EXISTS build_logs_compressed (
-            log_id INTEGER PRIMARY KEY,
-            compressed_data BLOB NOT NULL,
-            FOREIGN KEY (log_id) REFERENCES build_logs(id) ON DELETE CASCADE
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_build_logs_compressed_log_id ON build_logs_compressed(log_id);
-
-        -- 构建日志归档表
-        CREATE TABLE IF NOT EXISTS build_logs_archive (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            build_id INTEGER NOT NULL,
-            sequence_number INTEGER NOT NULL,
-            level VARCHAR(20),
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            message TEXT,
-            source VARCHAR(100),
-            compressed BOOLEAN DEFAULT FALSE,
-            compression_type VARCHAR(20)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_build_logs_archive_build ON build_logs_archive(build_id);
-        CREATE INDEX IF NOT EXISTS idx_build_logs_archive_timestamp ON build_logs_archive(timestamp);
-        """
+        setup_statements = [
+            """CREATE TABLE IF NOT EXISTS build_logs_compressed (
+                log_id INTEGER PRIMARY KEY,
+                compressed_data BLOB NOT NULL,
+                FOREIGN KEY (log_id) REFERENCES build_logs(id) ON DELETE CASCADE
+            )""",
+            "CREATE INDEX IF NOT EXISTS idx_build_logs_compressed_log_id ON build_logs_compressed(log_id)",
+            """CREATE TABLE IF NOT EXISTS build_logs_archive (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                build_id INTEGER NOT NULL,
+                sequence_number INTEGER NOT NULL,
+                level VARCHAR(20),
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                message TEXT,
+                source VARCHAR(100),
+                compressed BOOLEAN DEFAULT FALSE,
+                compression_type VARCHAR(20)
+            )""",
+            "CREATE INDEX IF NOT EXISTS idx_build_logs_archive_build ON build_logs_archive(build_id)",
+            "CREATE INDEX IF NOT EXISTS idx_build_logs_archive_timestamp ON build_logs_archive(timestamp)",
+        ]
 
         try:
             with self.db_service.transaction() as session:
-                session.execute(text(setup_sql))
+                for sql in setup_statements:
+                    session.execute(text(sql))
             logger.info("压缩存储表设置完成")
         except Exception as e:
             logger.error(f"设置压缩存储表失败: {e}")

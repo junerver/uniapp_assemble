@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     app_version: str = Field(default="1.0.0", description="Application version")
     debug: bool = Field(default=False, description="Debug mode")
     host: str = Field(default="127.0.0.1", description="Server host")
-    port: int = Field(default=8000, ge=1, le=65535, description="Server port")
+    port: int = Field(default=8123, ge=1, le=65535, description="Server port")
 
     # Database settings
     database_url: str = Field(
@@ -84,7 +84,7 @@ class Settings(BaseSettings):
 
     # CORS settings
     cors_origins: List[str] = Field(
-        default=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8000"],
+        default=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8123"],
         description="CORS allowed origins"
     )
 
