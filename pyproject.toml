@@ -1,5 +1,5 @@
 [project]
-name = "govcar-upgrade-uniapp-assemble"
+name = "uniapp-assemble"
 version = "0.1.0"
 description = "Android项目资源包替换构建工具 - 帮助Android开发工程师快速完成资源包替换、构建产物和最终提取的全流程"
 readme = "README.md"
